@@ -1,10 +1,11 @@
 export interface UserScriptMetadata {
   name: string;
-  namespace?: string;
   version: string;
   description: string;
-  author?: string;
   match: string[];
+  namespace?: string;
+  author?: string;
   updateURL?: string;
   downloadURL?: string;
+  license?: string;
 }

@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Gamescom Epix Tools
 // @namespace    jaredcat/gamescom-epix-tools
-// @version      1.0.0
+// @version      2.1.1
 // @author       jaredcat
 // @description  Tools for Gamescom Epix 2024 event website
+// @license      AGPL-3.0-or-later
 // @downloadURL  https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/gamescom-epix-tools.user.js
 // @updateURL    https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/gamescom-epix-tools.user.js
 // @match        *://gamescom.global/*

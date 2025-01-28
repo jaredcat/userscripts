@@ -2,7 +2,7 @@ import { UserScriptMetadata } from '../../types';
 
 const metadata: UserScriptMetadata = {
   name: 'TVDB Episode Input Automation',
-  version: '1.0.0',
+  version: '0.0.2',
   description: 'Automates episode input process on TVDB',
   match: ['*://thetvdb.com/series/*/episodes/add*'],
 };

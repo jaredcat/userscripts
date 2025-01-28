@@ -30,6 +30,7 @@ export default defineConfig(({ mode }) => {
           author: 'jaredcat',
           updateURL: `https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/${scriptName}.user.js`,
           downloadURL: `https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/${scriptName}.user.js`,
+          license: 'AGPL-3.0-or-later',
           ...require(`./src/scripts/${scriptName}/meta.ts`).default,
         },
       }),

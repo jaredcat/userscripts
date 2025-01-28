@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         TVDB Episode Input Automation
 // @namespace    jaredcat/tvdb-episode-automation
-// @version      1.0.0
+// @version      0.0.2
 // @author       jaredcat
 // @description  Automates episode input process on TVDB
+// @license      AGPL-3.0-or-later
 // @downloadURL  https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/tvdb-episode-automation.user.js
 // @updateURL    https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/tvdb-episode-automation.user.js
 // @match        *://thetvdb.com/series/*/episodes/add*
