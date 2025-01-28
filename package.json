@@ -1,0 +1,46 @@
+{
+  "name": "userscripts",
+  "version": "1.0.0",
+  "description": "Collection of userscripts for various websites",
+  "type": "module",
+  "author": "jaredcat",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "dev": "vite",
+    "build": "tsc && node scripts/build-all.cjs",
+    "build:script": "vite build --mode",
+    "build:all": "vite build --config vite.config.ts",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@violentmonkey/dom": "^2.2.0",
+    "@violentmonkey/ui": "^0.7.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "@violentmonkey/types": "^0.2.0",
+    "eslint": "^9.19.0",
+    "eslint-config-prettier": "^10.0.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.4.3",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vite-plugin-monkey": "^5.0.6"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.css": [
+      "prettier --write"
+    ]
+  },
+  "packageManager": "yarn@4.6.0"
+}
