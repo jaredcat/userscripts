@@ -5,7 +5,7 @@ import monkey from 'vite-plugin-monkey';
 
 // Helper to get all script directories
 const getScriptDirs = () => {
-  const scriptsPath = resolve(__dirname, 'src/scripts');
+  const scriptsPath = resolve(__dirname, 'src');
   return fs
     .readdirSync(scriptsPath, { withFileTypes: true })
     .filter((dirent) => dirent.isDirectory())
@@ -28,7 +28,7 @@ export default defineConfig(({ mode, command }) => {
     },
     plugins: [
       monkey({
-        entry: `src/scripts/${scriptName}/main.ts`,
+        entry: `src/${scriptName}/main.ts`,
         build: {
           fileName: `${scriptName}.user.js`,
           externalGlobals: isDev ? {} : undefined,
@@ -46,7 +46,7 @@ export default defineConfig(({ mode, command }) => {
             ? `http://localhost:3000/${scriptName}.user.js`
             : `https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/${scriptName}.user.js`,
           license: 'AGPL-3.0-or-later',
-          ...require(`./src/scripts/${scriptName}/meta.ts`).default,
+          ...require(`./src/${scriptName}/meta.ts`).default,
         },
       }),
     ],

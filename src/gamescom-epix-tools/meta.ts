@@ -1,6 +1,6 @@
-import { UserScriptMetadata } from '../../types';
+import { MonkeyUserScript } from 'vite-plugin-monkey';
 
-const metadata: UserScriptMetadata = {
+const metadata: MonkeyUserScript = {
   name: 'Gamescom Epix Tools',
   version: '2.1.1',
   description: 'Tools for Gamescom Epix 2024 event website',

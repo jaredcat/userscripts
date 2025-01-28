@@ -1,6 +1,6 @@
-import { UserScriptMetadata } from '../../types';
+import { MonkeyUserScript } from 'vite-plugin-monkey';
 
-const metadata: UserScriptMetadata = {
+const metadata: MonkeyUserScript = {
   name: 'SteamTrade Matcher Userscript',
   namespace: 'https://www.steamtradematcher.com',
   version: '2.1.1',

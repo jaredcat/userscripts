@@ -2,7 +2,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const scriptsDir = path.resolve(__dirname, '../src/scripts');
+const scriptsDir = path.resolve(__dirname, '../src');
 const scripts = fs
   .readdirSync(scriptsDir, { withFileTypes: true })
   .filter((dirent) => dirent.isDirectory())

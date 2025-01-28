@@ -1,6 +1,6 @@
-import { UserScriptMetadata } from '../../types';
+import { MonkeyUserScript } from 'vite-plugin-monkey';
 
-const metadata: UserScriptMetadata = {
+const metadata: MonkeyUserScript = {
   name: 'TVDB Episode Input Automation',
   version: '0.0.2',
   description: 'Automates episode input process on TVDB',

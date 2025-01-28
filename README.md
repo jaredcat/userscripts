@@ -9,13 +9,14 @@ All scripts are targeted for [ViolentMonkey](https://violentmonkey.github.io/) b
 - **Alienware Arena Filters**: Enhances the Alienware Arena website with additional filtering options
 - **TVDB Episode Input Automation**: Automates episode input process on TVDB
 - **Gamescom Epix Tools**: Tools for Gamescom Epix platform
+- **Price Per Unit**: Displays the price per unit of a product on supported sites
 
 ## Development
 
 ### Prerequisites
 
 - Node.js (v22 or higher)
-- npm or yarn
+- yarn
 
 ### Setup
 
