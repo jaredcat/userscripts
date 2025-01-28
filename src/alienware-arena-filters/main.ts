@@ -1,3 +1,5 @@
+import { GM } from '$';
+
 interface FilterSettings {
   hideClosedGiveaways: boolean;
   hideTierRestricted: boolean;
@@ -16,8 +18,8 @@ const defaultSettings: FilterSettings = {
   hideClaimed: true,
 };
 
-function getSettings(): FilterSettings {
-  const savedSettings = GM_getValue('filterSettings');
+async function getSettings(): Promise<FilterSettings> {
+  const savedSettings = await GM.getValue('filterSettings');
   // Start with default settings as base
   const settings: FilterSettings = { ...defaultSettings };
 
@@ -47,13 +49,13 @@ function getSettings(): FilterSettings {
   return settings;
 }
 
-function saveSettings(settings: Partial<FilterSettings>): void {
-  const prevSettings = getSettings();
+async function saveSettings(settings: Partial<FilterSettings>): Promise<void> {
+  const prevSettings = await getSettings();
   const newSettings = {
     ...prevSettings,
     ...settings,
   };
-  GM_setValue('filterSettings', JSON.stringify(newSettings));
+  await GM.setValue('filterSettings', JSON.stringify(newSettings));
 }
 
 // Function to extract tier number from text
@@ -63,7 +65,7 @@ function extractTier(text: string): number | null {
 }
 
 // Function to check and store user's tier on control center page
-function checkAndStoreTier(): void {
+async function checkAndStoreTier(): Promise<void> {
   const tierImg = document.querySelector<HTMLImageElement>(
     'img[src*="/images/content/tier-tags/"]',
   );
@@ -71,15 +73,15 @@ function checkAndStoreTier(): void {
     const tierMatch = tierImg.src.match(/tier-tags\/(\d+)\.png/);
     if (tierMatch) {
       const userTier = parseInt(tierMatch[1]);
-      saveSettings({ userTier });
+      await saveSettings({ userTier });
       console.log('Stored user tier:', userTier);
     }
   }
 }
 
 // Function to filter community giveaways
-function filterGiveaways(): void {
-  const settings = getSettings();
+async function filterGiveaways(): Promise<void> {
+  const settings = await getSettings();
   const userTier = settings.userTier ?? 99;
   const giveaways = document.querySelectorAll<HTMLElement>(
     'div.mb-3.community-giveaways__listing__row',
@@ -102,8 +104,8 @@ function filterGiveaways(): void {
 }
 
 // Function to filter marketplace items
-function filterMarketplace(): void {
-  const settings = getSettings();
+async function filterMarketplace(): Promise<void> {
+  const settings = await getSettings();
   const userTier = settings.userTier ?? 99;
   const items = document.querySelectorAll<HTMLElement>(
     '.pointer.marketplace-game-small, .pointer.marketplace-game-large, .product-tile, .featured-tile',
@@ -147,8 +149,8 @@ function filterMarketplace(): void {
 }
 
 // Function to create settings menu
-function createSettingsMenu(): void {
-  const settings = getSettings();
+async function createSettingsMenu(): Promise<void> {
+  const settings = await getSettings();
   const menuHTML = `
       <div
         id="alienware-filter-settings"
@@ -458,9 +460,9 @@ const currentPath = window.location.pathname;
 createSettingsMenu();
 addSettingsButton();
 
-const settings = getSettings();
+const settings = await getSettings();
 if (settings.autoSyncTier && currentPath === '/control-center') {
-  checkAndStoreTier();
+  await checkAndStoreTier();
 } else if (currentPath === '/community-giveaways') {
   // Add mutation observer for dynamic content loading
   const observer = new MutationObserver(() => {

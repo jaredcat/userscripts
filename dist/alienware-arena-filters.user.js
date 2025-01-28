@@ -1,20 +1,21 @@
 // ==UserScript==
 // @name         Alienware Arena Filters
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.1.1
+// @version      1.1.2
 // @author       jaredcat
 // @description  Enhances Alienware Arena website with additional filtering options
 // @license      AGPL-3.0-or-later
 // @downloadURL  https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/alienware-arena-filters.user.js
 // @updateURL    https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/alienware-arena-filters.user.js
 // @match        *://*.alienwarearena.com/*
-// @grant        GM_getValue
-// @grant        GM_setValue
+// @grant        GM.getValue
+// @grant        GM.setValue
 // ==/UserScript==
 
-(function () {
+(async function () {
   'use strict';
 
+  var _GM = /* @__PURE__ */ (() => typeof GM != "undefined" ? GM : undefined)();
   const defaultSettings = {
     hideClosedGiveaways: true,
     hideTierRestricted: true,
@@ -22,8 +23,8 @@
     hideOutOfStock: true,
     hideClaimed: true
   };
-  function getSettings() {
-    const savedSettings = GM_getValue("filterSettings");
+  async function getSettings() {
+    const savedSettings = await _GM.getValue("filterSettings");
     const settings2 = { ...defaultSettings };
     if (savedSettings) {
       try {
@@ -40,19 +41,19 @@
     }
     return settings2;
   }
-  function saveSettings(settings2) {
-    const prevSettings = getSettings();
+  async function saveSettings(settings2) {
+    const prevSettings = await getSettings();
     const newSettings = {
       ...prevSettings,
       ...settings2
     };
-    GM_setValue("filterSettings", JSON.stringify(newSettings));
+    await _GM.setValue("filterSettings", JSON.stringify(newSettings));
   }
   function extractTier(text) {
     const match = text.match(/Tier\s*(\d+)/i);
     return match ? parseInt(match[1]) : null;
   }
-  function checkAndStoreTier() {
+  async function checkAndStoreTier() {
     const tierImg = document.querySelector(
       'img[src*="/images/content/tier-tags/"]'
     );
@@ -60,13 +61,13 @@
       const tierMatch = tierImg.src.match(/tier-tags\/(\d+)\.png/);
       if (tierMatch) {
         const userTier = parseInt(tierMatch[1]);
-        saveSettings({ userTier });
+        await saveSettings({ userTier });
         console.log("Stored user tier:", userTier);
       }
     }
   }
-  function filterGiveaways() {
-    const settings2 = getSettings();
+  async function filterGiveaways() {
+    const settings2 = await getSettings();
     const userTier = settings2.userTier ?? 99;
     const giveaways = document.querySelectorAll(
       "div.mb-3.community-giveaways__listing__row"
@@ -85,8 +86,8 @@
       }
     });
   }
-  function filterMarketplace() {
-    const settings2 = getSettings();
+  async function filterMarketplace() {
+    const settings2 = await getSettings();
     const userTier = settings2.userTier ?? 99;
     const items = document.querySelectorAll(
       ".pointer.marketplace-game-small, .pointer.marketplace-game-large, .product-tile, .featured-tile"
@@ -119,9 +120,9 @@
       }
     }
   }
-  function createSettingsMenu() {
+  async function createSettingsMenu() {
     var _a, _b;
-    const settings2 = getSettings();
+    const settings2 = await getSettings();
     const menuHTML = `
       <div
         id="alienware-filter-settings"
@@ -384,9 +385,9 @@
   const currentPath = window.location.pathname;
   createSettingsMenu();
   addSettingsButton();
-  const settings = getSettings();
+  const settings = await( getSettings());
   if (settings.autoSyncTier && currentPath === "/control-center") {
-    checkAndStoreTier();
+    await( checkAndStoreTier());
   } else if (currentPath === "/community-giveaways") {
     const observer = new MutationObserver(() => {
       filterGiveaways();

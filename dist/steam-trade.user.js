@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SteamTrade Matcher Userscript
 // @namespace    https://www.steamtradematcher.com
-// @version      2.1.1
+// @version      2.1.2
 // @author       Robou / Tithen-Firion / jaredcat
 // @description  Allows quicker trade offers by automatically adding cards as matched by SteamTrade Matcher
 // @license      AGPL-3.0-or-later
@@ -24,6 +24,7 @@
   var __defProp = Object.defineProperty;
   var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+  var _GM = /* @__PURE__ */ (() => typeof GM != "undefined" ? GM : undefined)();
   const CONFIG = {
     WEBSITE_HOSTS: ["www.steamtradematcher.com"],
     STEAM: {
@@ -145,7 +146,7 @@
       this.isEnabled = false;
     }
     async initialize() {
-      this.isEnabled = await GM.getValue("SIDE_BY_SIDE", false);
+      this.isEnabled = await _GM.getValue("SIDE_BY_SIDE", false);
       if (this.isEnabled) this.enableStyle();
     }
     enableStyle() {
@@ -372,7 +373,7 @@
     static async loadSettings() {
       let settings = { ...CONFIG.DEFAULT_SETTINGS };
       for (const [key, defaultValue] of Object.entries(CONFIG.DEFAULT_SETTINGS)) {
-        const value = await GM.getValue(
+        const value = await _GM.getValue(
           key,
           defaultValue
         );
@@ -395,7 +396,7 @@
         SIDE_BY_SIDE: (_e = document.getElementById("side-by-side")) == null ? undefined : _e.checked
       };
       await Promise.all(
-        Object.entries(settings).map(([key, value]) => GM.setValue(key, value))
+        Object.entries(settings).map(([key, value]) => _GM.setValue(key, value))
       );
       const alert = document.getElementById("alert");
       if (alert) {
@@ -406,7 +407,7 @@
     static async restoreDefaults() {
       if (!window.confirm("Restore default settings?")) return;
       await Promise.all(
-        Object.keys(CONFIG.DEFAULT_SETTINGS).map((key) => GM.deleteValue(key))
+        Object.keys(CONFIG.DEFAULT_SETTINGS).map((key) => _GM.deleteValue(key))
       );
       document.location.reload();
     }
