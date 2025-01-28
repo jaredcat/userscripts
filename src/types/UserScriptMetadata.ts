@@ -8,4 +8,8 @@ export interface UserScriptMetadata {
   updateURL?: string;
   downloadURL?: string;
   license?: string;
+  icon?: string;
+  run_at?: string;
+  connect?: string[];
+  require?: string;
 }

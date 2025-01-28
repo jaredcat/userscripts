@@ -22,6 +22,7 @@
     "@violentmonkey/ui": "^0.7.9"
   },
   "devDependencies": {
+    "@types/jquery": "^3.5.32",
     "@types/node": "^22.12.0",
     "@violentmonkey/types": "^0.2.0",
     "eslint": "^9.19.0",
