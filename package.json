@@ -11,11 +11,10 @@
     "prepare": "husky",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "dev": "vite",
+    "dev:script": "vite --mode",
     "build": "tsc && node scripts/build-all.cjs",
     "build:script": "vite build --mode",
-    "build:all": "vite build --config vite.config.ts",
-    "preview": "vite preview"
+    "build:all": "vite build --config vite.config.ts"
   },
   "dependencies": {
     "@violentmonkey/dom": "^2.2.0",
