@@ -381,7 +381,7 @@
     }
   }
   const currentPath = window.location.pathname;
-  createSettingsMenu();
+  await( createSettingsMenu());
   addSettingsButton();
   const settings = await( getSettings());
   if (settings.autoSyncTier && currentPath === "/control-center") {

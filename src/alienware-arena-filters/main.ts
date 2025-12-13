@@ -457,7 +457,7 @@ function addSettingsButton(): void {
 const currentPath = window.location.pathname;
 
 // Add settings menu to all pages
-createSettingsMenu();
+await createSettingsMenu();
 addSettingsButton();
 
 const settings = await getSettings();

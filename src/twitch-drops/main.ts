@@ -1,4 +1,5 @@
 import { initializeCampaigns } from './campaigns';
+import { initializeInventory } from './inventory';
 
 // Development hot reload
 if (import.meta.hot) {
@@ -11,10 +12,10 @@ const url = window.location.href;
 
 // Initialize campaigns page handler
 if (url.includes('/drops/campaigns')) {
-  initializeCampaigns();
+  await initializeCampaigns();
 }
 
-// Future: Initialize inventory page handler
-// if (url.includes('/drops/inventory')) {
-//   initializeInventory();
-// }
+// Initialize inventory page handler
+if (url.includes('/drops/inventory')) {
+  await initializeInventory();
+}
