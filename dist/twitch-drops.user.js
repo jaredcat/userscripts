@@ -351,23 +351,6 @@
   }
   function parseEndDate(dateText) {
     try {
-      const parsed = new Date(dateText);
-      if (!isNaN(parsed.getTime())) {
-        const now = new Date();
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth();
-        const parsedYear = parsed.getFullYear();
-        const parsedMonth = parsed.getMonth();
-        const monthsDiff = (parsed.getTime() - now.getTime()) / (1e3 * 60 * 60 * 24 * 30);
-        if (parsedYear === currentYear && monthsDiff > 3 && (monthsDiff > 6 || currentMonth < 3 && parsedMonth > 8)) {
-          const adjusted = new Date(parsed);
-          adjusted.setFullYear(parsedYear - 1);
-          if (adjusted.getTime() <= now.getTime() + 7 * 24 * 60 * 60 * 1e3) {
-            return adjusted;
-          }
-        }
-        return parsed;
-      }
       const match = dateText.match(
         /(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)\s+(\w+)/i
       );
@@ -420,7 +403,7 @@
             HST: 10
           };
           const offset = tzOffsetMap[tz.toUpperCase()] || 0;
-          date.setUTCHours(date.getUTCHours() - offset);
+          date.setUTCHours(date.getUTCHours() + offset);
           const now = new Date();
           const monthsDiff = (date.getTime() - now.getTime()) / (1e3 * 60 * 60 * 24 * 30);
           if (monthsDiff > 3 && (monthsDiff > 6 || currentMonth < 3 && month > 8)) {
@@ -433,7 +416,7 @@
                 parseInt(minute, 10)
               )
             );
-            adjustedDate.setUTCHours(adjustedDate.getUTCHours() - offset);
+            adjustedDate.setUTCHours(adjustedDate.getUTCHours() + offset);
             if (adjustedDate.getTime() <= now.getTime() + 7 * 24 * 60 * 60 * 1e3) {
               date = adjustedDate;
             }

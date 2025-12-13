@@ -76,41 +76,9 @@ function hideConnectedRewards(): void {
 
 function parseEndDate(dateText: string): Date | null {
   // Date format: "Tue, Dec 9, 8:59 AM PST"
+  // Note: Browser Date parsing of timezone abbreviations like "PST" is unreliable,
+  // so we always use manual parsing for accuracy
   try {
-    // Try parsing directly - modern browsers can handle this format
-    const parsed = new Date(dateText);
-    if (!isNaN(parsed.getTime())) {
-      // Check if the parsed date is likely from the previous year
-      // This happens when we're early in the year (Jan-Mar) and see dates from late last year (Oct-Dec)
-      const now = new Date();
-      const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth(); // 0-11
-      const parsedYear = parsed.getFullYear();
-      const parsedMonth = parsed.getMonth(); // 0-11
-
-      // If parsed year is current year but date is far in the future (more than 3 months),
-      // or if we're early in the year (Jan-Mar) and the date is from late last year (Oct-Dec),
-      // try previous year
-      const monthsDiff =
-        (parsed.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30);
-
-      if (
-        parsedYear === currentYear &&
-        monthsDiff > 3 &&
-        (monthsDiff > 6 || (currentMonth < 3 && parsedMonth > 8))
-      ) {
-        // Try adjusting to previous year
-        const adjusted = new Date(parsed);
-        adjusted.setFullYear(parsedYear - 1);
-        // Use adjusted date if it's now in the past or very recent (within 7 days)
-        if (adjusted.getTime() <= now.getTime() + 7 * 24 * 60 * 60 * 1000) {
-          return adjusted;
-        }
-      }
-
-      return parsed;
-    }
-
     // Fallback: manually parse the date
     // Format: "Day, Month Day, Time AM/PM Timezone"
     // Example: "Tue, Dec 9, 8:59 AM PST"
@@ -157,7 +125,9 @@ function parseEndDate(dateText: string): Date | null {
           ),
         );
 
-        // Adjust for timezone offset (hours to subtract from UTC)
+        // Adjust for timezone offset
+        // PST is UTC-8, so 10:59 PM PST = 6:59 AM UTC the next day
+        // We need to ADD the offset to convert from PST to UTC
         const tzOffsetMap: Record<string, number> = {
           PST: 8,
           PDT: 7,
@@ -173,7 +143,8 @@ function parseEndDate(dateText: string): Date | null {
         };
 
         const offset = tzOffsetMap[tz.toUpperCase()] || 0;
-        date.setUTCHours(date.getUTCHours() - offset);
+        // Add offset to convert from timezone to UTC
+        date.setUTCHours(date.getUTCHours() + offset);
 
         // If the date with current year is likely from the previous year,
         // adjust it (e.g., we're in Jan 2026, but date is Dec 2025)
@@ -195,7 +166,7 @@ function parseEndDate(dateText: string): Date | null {
               parseInt(minute, 10),
             ),
           );
-          adjustedDate.setUTCHours(adjustedDate.getUTCHours() - offset);
+          adjustedDate.setUTCHours(adjustedDate.getUTCHours() + offset);
 
           // Use adjusted date if it's now in the past or very recent (within 7 days)
           if (
