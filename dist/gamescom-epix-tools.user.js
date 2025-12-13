@@ -13,13 +13,9 @@
 (function () {
   'use strict';
 
-  var __defProp = Object.defineProperty;
-  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
   class GamescomEpixTools {
+    toolbar = null;
     constructor() {
-      __publicField(this, "toolbar", null);
-      __publicField(this, "autoCollectInterval", null);
       this.init();
     }
     init() {
@@ -67,7 +63,6 @@
         }
       ];
       buttons.forEach(({ text, action, hotkey }) => {
-        var _a;
         const button = document.createElement("button");
         button.textContent = `${text} (${hotkey})`;
         button.style.cssText = `
@@ -80,7 +75,7 @@
         cursor: pointer;
       `;
         button.addEventListener("click", action);
-        (_a = this.toolbar) == null ? undefined : _a.appendChild(button);
+        this.toolbar?.appendChild(button);
       });
       document.body.appendChild(this.toolbar);
     }
@@ -104,14 +99,15 @@
       const joinButton = document.querySelector(
         'button[data-testid="join-queue-button"]'
       );
-      joinButton == null ? undefined : joinButton.click();
+      joinButton?.click();
     }
     skipCurrentVideo() {
       const skipButton = document.querySelector(
         'button[data-testid="skip-video-button"]'
       );
-      skipButton == null ? undefined : skipButton.click();
+      skipButton?.click();
     }
+    autoCollectInterval = null;
     toggleAutoCollect() {
       if (this.autoCollectInterval) {
         window.clearInterval(this.autoCollectInterval);

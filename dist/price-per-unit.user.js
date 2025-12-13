@@ -13,9 +13,6 @@
 (function () {
   'use strict';
 
-  var __defProp = Object.defineProperty;
-  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
   function parseSize(sizeText) {
     const match = sizeText.match(/^([\d.]+)\s*(.+)$/);
     if (!match) return null;
@@ -69,7 +66,9 @@
       return observer;
     }
   }
-  const _PetSmartPricePerUnit = class _PetSmartPricePerUnit extends BaseSiteHandler {
+  class PetSmartPricePerUnit extends BaseSiteHandler {
+    static PRICE_SELECTOR = ".sparky-c-price";
+    static SIZE_SELECTOR = ".size-variant__fields .sparky-c-definition-list__description";
     async initialize() {
       if (this.isProductPage()) {
         await this.addPricePerUnit();
@@ -79,17 +78,16 @@
       return !!document.querySelector(".product-details__layout-right");
     }
     extractProductInfo(element) {
-      var _a, _b;
       const priceElement = element.querySelector(
-        _PetSmartPricePerUnit.PRICE_SELECTOR
+        PetSmartPricePerUnit.PRICE_SELECTOR
       );
       const sizeElement = element.querySelector(
-        _PetSmartPricePerUnit.SIZE_SELECTOR
+        PetSmartPricePerUnit.SIZE_SELECTOR
       );
       if (!priceElement || !sizeElement) return null;
       const salePrice = priceElement.querySelector(".sparky-c-price--sale");
-      const priceText = ((_a = (salePrice == null ? undefined : salePrice.textContent) || priceElement.textContent) == null ? undefined : _a.trim()) || "";
-      const sizeText = ((_b = sizeElement.textContent) == null ? undefined : _b.trim()) || "";
+      const priceText = (salePrice?.textContent || priceElement.textContent)?.trim() || "";
+      const sizeText = sizeElement.textContent?.trim() || "";
       const price = parseFloat(priceText.replace("$", ""));
       if (isNaN(price)) return null;
       const sizeInfo = parseSize(sizeText);
@@ -122,21 +120,17 @@
       );
       priceContainer.appendChild(element);
     }
-  };
-  __publicField(_PetSmartPricePerUnit, "PRICE_SELECTOR", ".sparky-c-price");
-  __publicField(_PetSmartPricePerUnit, "SIZE_SELECTOR", ".size-variant__fields .sparky-c-definition-list__description");
-  let PetSmartPricePerUnit = _PetSmartPricePerUnit;
+  }
   const SITE_HANDLERS = [
     {
       matcher: (url) => url.includes("petsmart.com"),
       handler: PetSmartPricePerUnit
     }
-    // Add future sites here like:
-    // {
-    //   matcher: (url: string) => url.includes('somestore.com'),
-    //   handler: SomeStorePricePerUnit,
-    // },
-  ];
+
+
+
+
+];
   const currentHandler = SITE_HANDLERS.find(
     ({ matcher }) => matcher(window.location.href)
   );

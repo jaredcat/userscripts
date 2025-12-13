@@ -34,7 +34,7 @@
     episodes.forEach((episode, index) => {
       if (index >= rows.length - 1) {
         const addButton = document.querySelector(".multirow-add");
-        addButton == null ? undefined : addButton.click();
+        addButton?.click();
       }
       const row = document.querySelectorAll(".multirow-item")[index];
       if (!row) return;

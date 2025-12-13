@@ -17,21 +17,23 @@
     "build:all": "vite build --config vite.config.ts"
   },
   "dependencies": {
-    "@violentmonkey/dom": "^2.2.0",
+    "@violentmonkey/dom": "^2.2.1",
     "@violentmonkey/ui": "^0.7.9"
   },
   "devDependencies": {
-    "@types/jquery": "^3.5.32",
-    "@types/node": "^22.12.0",
-    "@violentmonkey/types": "^0.2.0",
-    "eslint": "^9.19.0",
-    "eslint-config-prettier": "^10.0.1",
+    "@types/jquery": "^3.5.33",
+    "@types/node": "^25.0.1",
+    "@violentmonkey/types": "^0.3.1",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
-    "lint-staged": "^15.4.3",
-    "prettier": "^3.4.2",
-    "typescript": "^5.7.3",
-    "vite": "^6.0.11",
-    "vite-plugin-monkey": "^5.0.6"
+    "lint-staged": "^16.2.7",
+    "postcss": "^8.5.6",
+    "prettier": "^3.7.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.49.0",
+    "vite": "^7.2.7",
+    "vite-plugin-monkey": "^7.1.5"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -42,5 +44,5 @@
       "prettier --write"
     ]
   },
-  "packageManager": "yarn@4.6.0"
+  "packageManager": "yarn@4.12.0"
 }

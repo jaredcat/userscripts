@@ -1,3 +1,4 @@
+import { GM } from '$';
 import * as jQuery from 'jquery';
 import {
   SteamItem,

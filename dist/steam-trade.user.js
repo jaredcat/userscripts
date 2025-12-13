@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SteamTrade Matcher Userscript
 // @namespace    https://www.steamtradematcher.com
-// @version      2.1.1
+// @version      2.1.2
 // @author       Robou / Tithen-Firion / jaredcat
 // @description  Allows quicker trade offers by automatically adding cards as matched by SteamTrade Matcher
 // @license      AGPL-3.0-or-later
@@ -21,9 +21,7 @@
 (function () {
   'use strict';
 
-  var __defProp = Object.defineProperty;
-  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+  var _GM = (() => typeof GM != "undefined" ? GM : void 0)();
   const CONFIG = {
     WEBSITE_HOSTS: ["www.steamtradematcher.com"],
     STEAM: {
@@ -136,16 +134,16 @@
   }
 `;
   class StyleManager {
+    styleId;
+    styleElement;
+    isEnabled;
     constructor() {
-      __publicField(this, "styleId");
-      __publicField(this, "styleElement");
-      __publicField(this, "isEnabled");
       this.styleId = "side-by-side-style";
       this.styleElement = null;
       this.isEnabled = false;
     }
     async initialize() {
-      this.isEnabled = await GM.getValue("SIDE_BY_SIDE", false);
+      this.isEnabled = await _GM.getValue("SIDE_BY_SIDE", false);
       if (this.isEnabled) this.enableStyle();
     }
     enableStyle() {
@@ -164,15 +162,14 @@
     }
   }
   function getUrlParameters() {
-    var _a, _b;
     const url = new URL(window.location.href);
     const you = url.searchParams.getAll("you[]");
     const them = url.searchParams.getAll("them[]");
     if (you.length || them.length) return { you, them };
     const params = Object.fromEntries(url.searchParams);
     return {
-      you: ((_a = params.you) == null ? undefined : _a.split(";")) || [],
-      them: ((_b = params.them) == null ? undefined : _b.split(";")) || []
+      you: params.you?.split(";") || [],
+      them: params.them?.split(";") || []
     };
   }
   const CookieManager = {
@@ -185,7 +182,7 @@
     },
     restoreInventoryCookie(cookieValue) {
       if (!cookieValue) return;
-      const expiry = /* @__PURE__ */ new Date();
+      const expiry = new Date();
       expiry.setTime(expiry.getTime() + 15 * 24 * 60 * 60 * 1e3);
       document.cookie = `strTradeLastInventoryContext=${cookieValue}; expires=${expiry.toUTCString()}; path=/tradeoffer/`;
     }
@@ -206,21 +203,20 @@
     }
   }
   class TradeHandler {
+    settings;
+    users;
+    cards;
+    oldCookie;
     constructor(settings, users, cards) {
-      __publicField(this, "settings");
-      __publicField(this, "users");
-      __publicField(this, "cards");
-      __publicField(this, "oldCookie");
       this.settings = settings;
       this.users = users;
       this.cards = cards;
       this.oldCookie = CookieManager.getInventoryCookie();
     }
     async validateTrade() {
-      var _a, _b, _c, _d, _e, _f;
       const [yourCards, theirCards] = this.cards;
-      const yourInventory = ((_c = (_b = (_a = this.users[0].rgContexts[CONFIG.STEAM.APP_ID]) == null ? undefined : _a[CONFIG.STEAM.CONTEXT_ID]) == null ? undefined : _b.inventory) == null ? undefined : _c.rgInventory) || {};
-      const theirInventory = ((_f = (_e = (_d = this.users[1].rgContexts[CONFIG.STEAM.APP_ID]) == null ? undefined : _d[CONFIG.STEAM.CONTEXT_ID]) == null ? undefined : _e.inventory) == null ? undefined : _f.rgInventory) || {};
+      const yourInventory = this.users[0].rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory?.rgInventory || {};
+      const theirInventory = this.users[1].rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory?.rgInventory || {};
       InventoryValidator.validateInventories(yourInventory, theirInventory);
       const validCards = this.findValidCards(
         yourInventory,
@@ -235,8 +231,8 @@
       return true;
     }
     findValidCards(yourInventory, theirInventory, yourCards, theirCards) {
-      const validYourCards = /* @__PURE__ */ new Set();
-      const validTheirCards = /* @__PURE__ */ new Set();
+      const validYourCards = new Set();
+      const validTheirCards = new Set();
       yourCards.forEach((classId) => {
         if (Object.values(yourInventory).some((item) => item.classid === classId)) {
           validYourCards.add(classId);
@@ -330,8 +326,7 @@
     }
     bindEvents() {
       document.addEventListener("click", async (e) => {
-        var _a;
-        const tradeButton = (_a = e.target) == null ? undefined : _a.closest(".user-results > .card-header > div > .btn");
+        const tradeButton = e.target?.closest(".user-results > .card-header > div > .btn");
         if (!tradeButton) return;
         e.preventDefault();
         await this.handleTradeClick(tradeButton);
@@ -372,11 +367,11 @@
     static async loadSettings() {
       let settings = { ...CONFIG.DEFAULT_SETTINGS };
       for (const [key, defaultValue] of Object.entries(CONFIG.DEFAULT_SETTINGS)) {
-        const value = await GM.getValue(
+        const value = await _GM.getValue(
           key,
           defaultValue
         );
-        if (value !== undefined) {
+        if (value !== void 0) {
           settings = {
             ...settings,
             [key]: value
@@ -386,16 +381,15 @@
       return settings;
     }
     static async saveSettings() {
-      var _a, _b, _c, _d, _e;
       const settings = {
-        MESSAGE: (_a = document.getElementById("trade-message")) == null ? undefined : _a.value,
-        DO_AFTER_TRADE: (_b = document.getElementById("after-trade")) == null ? undefined : _b.value,
-        ORDER: (_c = document.getElementById("cards-order")) == null ? undefined : _c.value,
-        AUTO_SEND: (_d = document.getElementById("auto-send")) == null ? undefined : _d.checked,
-        SIDE_BY_SIDE: (_e = document.getElementById("side-by-side")) == null ? undefined : _e.checked
+        MESSAGE: document.getElementById("trade-message")?.value,
+        DO_AFTER_TRADE: document.getElementById("after-trade")?.value,
+        ORDER: document.getElementById("cards-order")?.value,
+        AUTO_SEND: document.getElementById("auto-send")?.checked,
+        SIDE_BY_SIDE: document.getElementById("side-by-side")?.checked
       };
       await Promise.all(
-        Object.entries(settings).map(([key, value]) => GM.setValue(key, value))
+        Object.entries(settings).map(([key, value]) => _GM.setValue(key, value))
       );
       const alert = document.getElementById("alert");
       if (alert) {
@@ -406,12 +400,11 @@
     static async restoreDefaults() {
       if (!window.confirm("Restore default settings?")) return;
       await Promise.all(
-        Object.keys(CONFIG.DEFAULT_SETTINGS).map((key) => GM.deleteValue(key))
+        Object.keys(CONFIG.DEFAULT_SETTINGS).map((key) => _GM.deleteValue(key))
       );
       document.location.reload();
     }
     static prepareSettings(settings) {
-      var _a, _b;
       const createCard = (title, body) => `
       <div class="col-xl-6 g-3">
         <div class="card border-dark h-100">
@@ -506,8 +499,8 @@
           ${content.innerHTML}
       `;
       }
-      (_a = document.getElementById("save")) == null ? undefined : _a.addEventListener("click", SettingsManager.saveSettings);
-      (_b = document.getElementById("restore")) == null ? undefined : _b.addEventListener("click", SettingsManager.restoreDefaults);
+      document.getElementById("save")?.addEventListener("click", SettingsManager.saveSettings);
+      document.getElementById("restore")?.addEventListener("click", SettingsManager.restoreDefaults);
       const userscriptSettings = document.getElementById("userscript-settings");
       if (userscriptSettings) {
         userscriptSettings.style.display = "block";
@@ -535,8 +528,7 @@
         const checkInventories = () => {
           const users = [unsafeWindow.UserYou, unsafeWindow.UserThem];
           const ready = users.every((user) => {
-            var _a, _b, _c;
-            if ((_c = (_b = (_a = user.rgContexts) == null ? void 0 : _a[CONFIG.STEAM.APP_ID]) == null ? void 0 : _b[CONFIG.STEAM.CONTEXT_ID]) == null ? void 0 : _c.inventory) {
+            if (user.rgContexts?.[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory) {
               const inventory = user.rgContexts[CONFIG.STEAM.APP_ID][CONFIG.STEAM.CONTEXT_ID].inventory;
               if (!inventory.rgInventory) {
                 inventory.BuildInventoryDisplayElements();
@@ -549,8 +541,7 @@
             resolve();
           } else {
             users.forEach((user) => {
-              var _a, _b, _c;
-              if (!((_c = (_b = (_a = user.rgContexts) == null ? void 0 : _a[CONFIG.STEAM.APP_ID]) == null ? void 0 : _b[CONFIG.STEAM.CONTEXT_ID]) == null ? void 0 : _c.inventory)) {
+              if (!user.rgContexts?.[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory) {
                 $J("#trade_inventory_unavailable").show();
                 $J("#trade_inventory_pending").show();
                 user.loadInventory(CONFIG.STEAM.APP_ID, CONFIG.STEAM.CONTEXT_ID);
