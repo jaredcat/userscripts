@@ -1,6 +1,8 @@
 import { GM } from '$';
 import * as jQuery from 'jquery';
 import {
+  CardOrder,
+  DoAfterTrade,
   SteamItem,
   SteamTradeConfig,
   SteamTradeSettings,
@@ -22,6 +24,12 @@ const CONFIG: SteamTradeConfig = {
   TRADE: {
     CHUNK_SIZE: 100,
     WINDOW_DELAY: 1000,
+    INVENTORY_CHECK_INTERVAL: 500,
+    INVENTORY_CHECK_TIMEOUT: 60000,
+    INVENTORY_CHECK_MAX_RETRIES: 120,
+  },
+  COOKIE: {
+    EXPIRY_DAYS: 15,
   },
   DEFAULT_SETTINGS: {
     MESSAGE: 'SteamTrade Matcher',
@@ -29,6 +37,11 @@ const CONFIG: SteamTradeConfig = {
     DO_AFTER_TRADE: 'NOTHING',
     ORDER: 'AS_IS',
     SIDE_BY_SIDE: false,
+  },
+  VALIDATION: {
+    DO_AFTER_TRADE_VALUES: ['NOTHING', 'CLOSE_WINDOW', 'CLICK_OK'] as const,
+    ORDER_VALUES: ['AS_IS', 'SORT', 'RANDOM'] as const,
+    MESSAGE_MAX_LENGTH: 500,
   },
 };
 
@@ -158,6 +171,12 @@ class StyleManager {
   }
 }
 
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 function getUrlParameters() {
   const url = new URL(window.location.href);
   const you = url.searchParams.getAll('you[]');
@@ -187,7 +206,9 @@ const CookieManager = {
   restoreInventoryCookie(cookieValue: string | null) {
     if (!cookieValue) return;
     const expiry = new Date();
-    expiry.setTime(expiry.getTime() + 15 * 24 * 60 * 60 * 1000);
+    expiry.setTime(
+      expiry.getTime() + CONFIG.COOKIE.EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+    );
     document.cookie = `strTradeLastInventoryContext=${cookieValue}; expires=${expiry.toUTCString()}; path=/tradeoffer/`;
   },
 };
@@ -228,16 +249,23 @@ class TradeHandler {
     this.settings = settings;
     this.users = users;
     this.cards = cards;
-    this.oldCookie = CookieManager.getInventoryCookie();
+    this.oldCookie = CookieManager.getInventoryCookie() ?? null;
   }
 
   async validateTrade() {
     const [yourCards, theirCards] = this.cards;
+    if (!yourCards || !theirCards) {
+      throw new Error('Invalid cards array');
+    }
+    if (this.users.length < 2) {
+      throw new Error('Invalid users array');
+    }
+
     const yourInventory =
-      this.users[0].rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]
+      this.users[0]?.rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]
         ?.inventory?.rgInventory || {};
     const theirInventory =
-      this.users[1].rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]
+      this.users[1]?.rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]
         ?.inventory?.rgInventory || {};
 
     InventoryValidator.validateInventories(yourInventory, theirInventory);
@@ -286,12 +314,16 @@ class TradeHandler {
     const matchingTheirCards: string[] = [];
 
     for (let i = 0; i < yourCards.length; i++) {
+      const yourCard = yourCards[i];
+      const theirCard = theirCards[i];
       if (
-        validYourCards.has(yourCards[i]) &&
-        validTheirCards.has(theirCards[i])
+        yourCard &&
+        theirCard &&
+        validYourCards.has(yourCard) &&
+        validTheirCards.has(theirCard)
       ) {
-        matchingYourCards.push(yourCards[i]);
-        matchingTheirCards.push(theirCards[i]);
+        matchingYourCards.push(yourCard);
+        matchingTheirCards.push(theirCard);
       }
     }
 
@@ -299,21 +331,37 @@ class TradeHandler {
   }
 
   async processCards() {
-    const cardTypes = [[], []];
+    const cardTypes: string[][] = [[], []];
 
     for (let i = 0; i < 2; i++) {
+      const user = this.users[i];
+      if (!user) {
+        throw new Error(`User at index ${i} is undefined`);
+      }
       const inventory =
-        this.users[i].rgContexts[CONFIG.STEAM.APP_ID][CONFIG.STEAM.CONTEXT_ID]
-          .inventory;
+        user.rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]
+          ?.inventory;
+      if (!inventory) {
+        throw new Error(`Inventory for user ${i} is undefined`);
+      }
       inventory.BuildInventoryDisplayElements();
+      const cards = this.cards[i];
+      if (!cards) {
+        throw new Error(`Cards array at index ${i} is undefined`);
+      }
       const cardMapping = this.createCardMapping(
-        inventory.rgInventory,
-        this.cards[i],
+        inventory.rgInventory || {},
+        cards,
       );
-      await this.addCardsToTrade(cardMapping, this.cards[i], cardTypes[i]);
+      await this.addCardsToTrade(cardMapping, cards, cardTypes[i]!);
     }
 
-    InventoryValidator.validateCardTypes(cardTypes[0], cardTypes[1]);
+    const yourTypes = cardTypes[0];
+    const theirTypes = cardTypes[1];
+    if (!yourTypes || !theirTypes) {
+      throw new Error('Card types arrays are invalid');
+    }
+    InventoryValidator.validateCardTypes(yourTypes, theirTypes);
     return true;
   }
 
@@ -327,19 +375,26 @@ class TradeHandler {
     > = {};
     Object.values(inventory).forEach((item: SteamItem) => {
       if (requestedCards.includes(item.classid)) {
-        if (!mapping[item.classid]) mapping[item.classid] = [];
-        mapping[item.classid].push({
-          type: item.type,
-          element: item.element,
-          id: item.id,
-        });
+        if (!mapping[item.classid]) {
+          mapping[item.classid] = [];
+        }
+        const cardArray = mapping[item.classid];
+        if (cardArray) {
+          cardArray.push({
+            type: item.type,
+            element: item.element,
+            id: item.id,
+          });
+        }
       }
     });
 
     if (this.settings.ORDER === 'SORT') {
-      Object.values(mapping).forEach((cards) =>
-        cards.sort((a, b) => parseInt(b.id) - parseInt(a.id)),
-      );
+      Object.values(mapping).forEach((cards) => {
+        if (cards) {
+          cards.sort((a, b) => parseInt(b.id) - parseInt(a.id));
+        }
+      });
     }
 
     return mapping;
@@ -362,8 +417,13 @@ class TradeHandler {
           ? Math.floor(Math.random() * availableCards.length)
           : 0;
 
-      unsafeWindow.MoveItemToTrade(availableCards[index].element);
-      typeArray.push(availableCards[index].type);
+      const selectedCard = availableCards[index];
+      if (!selectedCard) {
+        throw new Error('Selected card is undefined');
+      }
+
+      unsafeWindow.MoveItemToTrade(selectedCard.element);
+      typeArray.push(selectedCard.type);
       availableCards.splice(index, 1);
     }
   }
@@ -372,8 +432,9 @@ class TradeHandler {
     if (this.settings.DO_AFTER_TRADE === 'NOTHING') return;
 
     const script = document.createElement('script');
+    const action = JSON.stringify(this.settings.DO_AFTER_TRADE);
     script.textContent = `
-      const DO_AFTER_TRADE = "${this.settings.DO_AFTER_TRADE}";
+      const DO_AFTER_TRADE = ${action};
       $J(document).ajaxSuccess((event, xhr, settings) => {
         if (settings.url === "https://steamcommunity.com/tradeoffer/new/send") {
           if (DO_AFTER_TRADE === "CLOSE_WINDOW") {
@@ -458,38 +519,109 @@ class TradeSplitter {
 }
 
 class SettingsManager {
-  static async loadSettings(): Promise<SteamTradeSettings> {
-    let settings = { ...CONFIG.DEFAULT_SETTINGS };
+  private static isValidDoAfterTrade(value: unknown): value is DoAfterTrade {
+    return (
+      typeof value === 'string' &&
+      CONFIG.VALIDATION.DO_AFTER_TRADE_VALUES.includes(value as DoAfterTrade)
+    );
+  }
 
-    for (const [key, defaultValue] of Object.entries(CONFIG.DEFAULT_SETTINGS)) {
-      const value = (await GM.getValue(
-        key,
-        defaultValue,
-      )) as SteamTradeSettings[keyof SteamTradeSettings];
-      if (value !== undefined) {
-        settings = {
-          ...settings,
-          [key]: value,
-        };
-      }
+  private static isValidCardOrder(value: unknown): value is CardOrder {
+    return (
+      typeof value === 'string' &&
+      CONFIG.VALIDATION.ORDER_VALUES.includes(value as CardOrder)
+    );
+  }
+
+  static async loadSettings(): Promise<SteamTradeSettings> {
+    const settings = { ...CONFIG.DEFAULT_SETTINGS };
+
+    const message = await GM.getValue(
+      'MESSAGE',
+      CONFIG.DEFAULT_SETTINGS.MESSAGE,
+    );
+    if (typeof message === 'string') {
+      settings.MESSAGE = message;
     }
+
+    const autoSend = await GM.getValue(
+      'AUTO_SEND',
+      CONFIG.DEFAULT_SETTINGS.AUTO_SEND,
+    );
+    if (typeof autoSend === 'boolean') {
+      settings.AUTO_SEND = autoSend;
+    }
+
+    const doAfterTrade = await GM.getValue(
+      'DO_AFTER_TRADE',
+      CONFIG.DEFAULT_SETTINGS.DO_AFTER_TRADE,
+    );
+    if (this.isValidDoAfterTrade(doAfterTrade)) {
+      settings.DO_AFTER_TRADE = doAfterTrade;
+    }
+
+    const order = await GM.getValue('ORDER', CONFIG.DEFAULT_SETTINGS.ORDER);
+    if (this.isValidCardOrder(order)) {
+      settings.ORDER = order;
+    }
+
+    const sideBySide = await GM.getValue(
+      'SIDE_BY_SIDE',
+      CONFIG.DEFAULT_SETTINGS.SIDE_BY_SIDE,
+    );
+    if (typeof sideBySide === 'boolean') {
+      settings.SIDE_BY_SIDE = sideBySide;
+    }
+
     return settings;
   }
 
   static async saveSettings() {
-    const settings = {
-      MESSAGE: (document.getElementById('trade-message') as HTMLInputElement)
-        ?.value,
-      DO_AFTER_TRADE: (
-        document.getElementById('after-trade') as HTMLSelectElement
-      )?.value,
-      ORDER: (document.getElementById('cards-order') as HTMLSelectElement)
-        ?.value,
-      AUTO_SEND: (document.getElementById('auto-send') as HTMLInputElement)
-        ?.checked,
-      SIDE_BY_SIDE: (
-        document.getElementById('side-by-side') as HTMLInputElement
-      )?.checked,
+    const messageInput = document.getElementById(
+      'trade-message',
+    ) as HTMLInputElement;
+    const message =
+      messageInput?.value?.trim() || CONFIG.DEFAULT_SETTINGS.MESSAGE;
+    if (message.length > CONFIG.VALIDATION.MESSAGE_MAX_LENGTH) {
+      throw new Error(
+        `Message exceeds maximum length of ${CONFIG.VALIDATION.MESSAGE_MAX_LENGTH} characters`,
+      );
+    }
+
+    const doAfterTradeInput = document.getElementById(
+      'after-trade',
+    ) as HTMLSelectElement;
+    const doAfterTrade = doAfterTradeInput?.value;
+    if (!this.isValidDoAfterTrade(doAfterTrade)) {
+      throw new Error(`Invalid DO_AFTER_TRADE value: ${doAfterTrade}`);
+    }
+
+    const orderInput = document.getElementById(
+      'cards-order',
+    ) as HTMLSelectElement;
+    const order = orderInput?.value;
+    if (!this.isValidCardOrder(order)) {
+      throw new Error(`Invalid ORDER value: ${order}`);
+    }
+
+    const autoSendInput = document.getElementById(
+      'auto-send',
+    ) as HTMLInputElement;
+    const autoSend =
+      autoSendInput?.checked ?? CONFIG.DEFAULT_SETTINGS.AUTO_SEND;
+
+    const sideBySideInput = document.getElementById(
+      'side-by-side',
+    ) as HTMLInputElement;
+    const sideBySide =
+      sideBySideInput?.checked ?? CONFIG.DEFAULT_SETTINGS.SIDE_BY_SIDE;
+
+    const settings: SteamTradeSettings = {
+      MESSAGE: message,
+      DO_AFTER_TRADE: doAfterTrade,
+      ORDER: order,
+      AUTO_SEND: autoSend,
+      SIDE_BY_SIDE: sideBySide,
     };
 
     await Promise.all(
@@ -511,90 +643,83 @@ class SettingsManager {
     document.location.reload();
   }
 
-  static prepareSettings(settings: SteamTradeSettings) {
-    const createCard = (title: string, body: string) => `
+  private static createCard(title: string, body: string): string {
+    return `
       <div class="col-xl-6 g-3">
         <div class="card border-dark h-100">
-          <div class="card-header">${title}</div>
+          <div class="card-header">${escapeHtml(title)}</div>
           <div class="card-body fw-light">${body}</div>
         </div>
       </div>
     `;
+  }
 
-    const content = document.getElementById('userscript-settings-target');
-    const cards: Array<{ title: string; body: string }> = [
-      {
-        title: 'Action after trade',
-        body: `
-          <p>Determines what happens when you complete a trade offer.</p>
-          <ul>
-            <li><strong>Do nothing</strong>: Will do nothing more than the normal behavior.</li>
-            <li><strong>Close window</strong>: Will close the window after the trade offer is sent.</li>
-            <li><strong>Click OK</strong>: Will redirect you to the trade offers recap page.</li>
-          </ul>
-          <div class="option-block">
-            <label for="after-trade">After trade...</label>
-            <select class="form-control" name="after-trade" id="after-trade">
-              <option value="NOTHING" ${settings.DO_AFTER_TRADE === 'NOTHING' ? 'selected' : ''}>Do Nothing</option>
-              <option value="CLOSE_WINDOW" ${settings.DO_AFTER_TRADE === 'CLOSE_WINDOW' ? 'selected' : ''}>Close window</option>
-              <option value="CLICK_OK" ${settings.DO_AFTER_TRADE === 'CLICK_OK' ? 'selected' : ''}>Click OK</option>
-            </select>
-          </div>`,
-      },
-      {
-        title: 'Cards order',
-        body: `
-          <p>Determines which card is added to trade.</p>
-          <ul>
-            <li><strong>Sorted</strong>: Will sort cards by their IDs before adding to trade.</li>
-            <li><strong>Random</strong>: Will add cards to trade randomly.</li>
-            <li><strong>As is</strong>: Script doesn't change anything in order.</li>
-          </ul>
-          <div class="option-block">
-            <label for="cards-order">Cards order</label>
-            <select class="form-control" name="cards-order" id="cards-order">
-              <option value="SORT" ${settings.ORDER === 'SORT' ? 'selected' : ''}>Sorted</option>
-              <option value="RANDOM" ${settings.ORDER === 'RANDOM' ? 'selected' : ''}>Random</option>
-              <option value="AS_IS" ${settings.ORDER === 'AS_IS' ? 'selected' : ''}>As is</option>
-            </select>
-          </div>`,
-      },
-      {
-        title: 'Trade offer message',
-        body: `
-          <p>Custom text that will be included automatically with your trade offers.</p>
-          <div>
-            <input type="text" name="trade-message" id="trade-message" class="form-control" value="${settings.MESSAGE}">
-          </div>`,
-      },
-      {
-        title: 'Auto-send trade offer',
-        body: `
-          <p>Makes it possible for the script to automatically send trade offers without any action.</p>
-          <div class="checkbox form-check form-switch">
-            <label for="auto-send">
-              <input name="auto-send" class="form-check-input" id="auto-send" value="1" type="checkbox" ${settings.AUTO_SEND ? 'checked' : ''}>
-              Enable
-            </label>
-          </div>`,
-      },
-      {
-        title: 'Side-by-side trade view',
-        body: `
-          <p>Changes the steam trade window so that the trade columns are side-by-side.</p>
-          <div class="checkbox form-check form-switch">
-            <label for="side-by-side">
-              <input name="side-by-side" class="form-check-input" id="side-by-side" value="1" type="checkbox" ${settings.SIDE_BY_SIDE ? 'checked' : ''}>
-              Enable
-            </label>
-          </div>`,
-      },
-    ];
+  private static createAfterTradeCard(settings: SteamTradeSettings): string {
+    const selected = (value: DoAfterTrade) =>
+      settings.DO_AFTER_TRADE === value ? 'selected' : '';
+    return `
+      <p>Determines what happens when you complete a trade offer.</p>
+      <ul>
+        <li><strong>Do nothing</strong>: Will do nothing more than the normal behavior.</li>
+        <li><strong>Close window</strong>: Will close the window after the trade offer is sent.</li>
+        <li><strong>Click OK</strong>: Will redirect you to the trade offers recap page.</li>
+      </ul>
+      <div class="option-block">
+        <label for="after-trade">After trade...</label>
+        <select class="form-control" name="after-trade" id="after-trade">
+          <option value="NOTHING" ${selected('NOTHING')}>Do Nothing</option>
+          <option value="CLOSE_WINDOW" ${selected('CLOSE_WINDOW')}>Close window</option>
+          <option value="CLICK_OK" ${selected('CLICK_OK')}>Click OK</option>
+        </select>
+      </div>`;
+  }
 
-    const cardElements = cards
-      .map((card) => createCard(card.title, card.body))
-      .join('');
-    const buttons = `
+  private static createOrderCard(settings: SteamTradeSettings): string {
+    const selected = (value: CardOrder) =>
+      settings.ORDER === value ? 'selected' : '';
+    return `
+      <p>Determines which card is added to trade.</p>
+      <ul>
+        <li><strong>Sorted</strong>: Will sort cards by their IDs before adding to trade.</li>
+        <li><strong>Random</strong>: Will add cards to trade randomly.</li>
+        <li><strong>As is</strong>: Script doesn't change anything in order.</li>
+      </ul>
+      <div class="option-block">
+        <label for="cards-order">Cards order</label>
+        <select class="form-control" name="cards-order" id="cards-order">
+          <option value="SORT" ${selected('SORT')}>Sorted</option>
+          <option value="RANDOM" ${selected('RANDOM')}>Random</option>
+          <option value="AS_IS" ${selected('AS_IS')}>As is</option>
+        </select>
+      </div>`;
+  }
+
+  private static createMessageCard(settings: SteamTradeSettings): string {
+    return `
+      <p>Custom text that will be included automatically with your trade offers.</p>
+      <div>
+        <input type="text" name="trade-message" id="trade-message" class="form-control" value="${escapeHtml(settings.MESSAGE)}">
+      </div>`;
+  }
+
+  private static createCheckboxCard(
+    id: string,
+    _title: string,
+    description: string,
+    checked: boolean,
+  ): string {
+    return `
+      <p>${escapeHtml(description)}</p>
+      <div class="checkbox form-check form-switch">
+        <label for="${escapeHtml(id)}">
+          <input name="${escapeHtml(id)}" class="form-check-input" id="${escapeHtml(id)}" value="1" type="checkbox" ${checked ? 'checked' : ''}>
+          Enable
+        </label>
+      </div>`;
+  }
+
+  private static createActionButtons(): string {
+    return `
       <div class="position-fixed bottom-0 end-0 m-2 col-auto g-3">
         <div class="bg-opacity-25 bg-primary p-3 border border-primary rounded">
           <button class="btn btn-secondary border-dark me-2" id="restore" type="button">Restore default settings</button>
@@ -602,22 +727,26 @@ class SettingsManager {
         </div>
       </div>
     `;
+  }
 
-    if (content) {
-      content.innerHTML = `
-          <div class="alert alert-success mt-3 mb-0" id="alert" style="display:none">Your parameters have been saved.</div>
-          ${cardElements}
-          ${buttons}
-          ${content.innerHTML}
-      `;
-    }
-
-    document
-      .getElementById('save')
-      ?.addEventListener('click', SettingsManager.saveSettings);
+  private static bindEventHandlers() {
+    document.getElementById('save')?.addEventListener('click', () => {
+      SettingsManager.saveSettings().catch((error) => {
+        console.error('Failed to save settings:', error);
+        const alert = document.getElementById('alert');
+        if (alert) {
+          alert.textContent = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          alert.className = 'alert alert-danger mt-3 mb-0';
+          alert.style.display = 'block';
+        }
+      });
+    });
     document
       .getElementById('restore')
       ?.addEventListener('click', SettingsManager.restoreDefaults);
+  }
+
+  private static toggleVisibility() {
     const userscriptSettings = document.getElementById('userscript-settings');
     if (userscriptSettings) {
       userscriptSettings.style.display = 'block';
@@ -627,13 +756,68 @@ class SettingsManager {
       userscriptGuide.style.display = 'none';
     }
   }
+
+  static prepareSettings(settings: SteamTradeSettings) {
+    const content = document.getElementById('userscript-settings-target');
+    if (!content) return;
+
+    const cards: Array<{ title: string; body: string }> = [
+      {
+        title: 'Action after trade',
+        body: this.createAfterTradeCard(settings),
+      },
+      {
+        title: 'Cards order',
+        body: this.createOrderCard(settings),
+      },
+      {
+        title: 'Trade offer message',
+        body: this.createMessageCard(settings),
+      },
+      {
+        title: 'Auto-send trade offer',
+        body: this.createCheckboxCard(
+          'auto-send',
+          'Auto-send trade offer',
+          'Makes it possible for the script to automatically send trade offers without any action.',
+          settings.AUTO_SEND,
+        ),
+      },
+      {
+        title: 'Side-by-side trade view',
+        body: this.createCheckboxCard(
+          'side-by-side',
+          'Side-by-side trade view',
+          'Changes the steam trade window so that the trade columns are side-by-side.',
+          settings.SIDE_BY_SIDE,
+        ),
+      },
+    ];
+
+    const cardElements = cards
+      .map((card) => this.createCard(card.title, card.body))
+      .join('');
+    const buttons = this.createActionButtons();
+
+    content.innerHTML = `
+        <div class="alert alert-success mt-3 mb-0" id="alert" style="display:none">Your parameters have been saved.</div>
+        ${cardElements}
+        ${buttons}
+        ${content.innerHTML}
+    `;
+
+    this.bindEventHandlers();
+    this.toggleVisibility();
+  }
 }
 
 async function handleSteamTrade(settings: SteamTradeSettings) {
   const params = getUrlParameters();
   const cards = [params.you, params.them];
 
-  if (!cards[0].length || !cards[1].length) {
+  const yourCards = cards[0];
+  const theirCards = cards[1];
+  if (!yourCards?.length || !theirCards?.length) {
     throw new Error('No cards specified in URL parameters');
   }
 
@@ -646,17 +830,35 @@ async function handleSteamTrade(settings: SteamTradeSettings) {
   );
 
   try {
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+      const startTime = Date.now();
+      let retryCount = 0;
+
       const checkInventories = () => {
+        const elapsed = Date.now() - startTime;
+        if (elapsed > CONFIG.TRADE.INVENTORY_CHECK_TIMEOUT) {
+          reject(
+            new Error(
+              `Inventory loading timeout after ${CONFIG.TRADE.INVENTORY_CHECK_TIMEOUT}ms`,
+            ),
+          );
+          return;
+        }
+
+        if (retryCount >= CONFIG.TRADE.INVENTORY_CHECK_MAX_RETRIES) {
+          reject(
+            new Error(`Inventory loading failed after ${retryCount} retries`),
+          );
+          return;
+        }
+
+        retryCount++;
         const users = [unsafeWindow.UserYou, unsafeWindow.UserThem];
         const ready = users.every((user) => {
-          if (
+          const inventory =
             user.rgContexts?.[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]
-              ?.inventory
-          ) {
-            const inventory =
-              user.rgContexts[CONFIG.STEAM.APP_ID][CONFIG.STEAM.CONTEXT_ID]
-                .inventory;
+              ?.inventory;
+          if (inventory) {
             if (!inventory.rgInventory) {
               inventory.BuildInventoryDisplayElements();
             }
@@ -681,7 +883,7 @@ async function handleSteamTrade(settings: SteamTradeSettings) {
               user.loadInventory(CONFIG.STEAM.APP_ID, CONFIG.STEAM.CONTEXT_ID);
             }
           });
-          setTimeout(checkInventories, 500);
+          setTimeout(checkInventories, CONFIG.TRADE.INVENTORY_CHECK_INTERVAL);
         }
       };
       checkInventories();

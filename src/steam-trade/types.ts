@@ -1,8 +1,11 @@
+export type DoAfterTrade = 'NOTHING' | 'CLOSE_WINDOW' | 'CLICK_OK';
+export type CardOrder = 'AS_IS' | 'SORT' | 'RANDOM';
+
 export interface SteamTradeSettings {
   MESSAGE: string;
   AUTO_SEND: boolean;
-  DO_AFTER_TRADE: string;
-  ORDER: string;
+  DO_AFTER_TRADE: DoAfterTrade;
+  ORDER: CardOrder;
   SIDE_BY_SIDE: boolean;
 }
 
@@ -15,8 +18,19 @@ export interface SteamTradeConfig {
   TRADE: {
     CHUNK_SIZE: number;
     WINDOW_DELAY: number;
+    INVENTORY_CHECK_INTERVAL: number;
+    INVENTORY_CHECK_TIMEOUT: number;
+    INVENTORY_CHECK_MAX_RETRIES: number;
+  };
+  COOKIE: {
+    EXPIRY_DAYS: number;
   };
   DEFAULT_SETTINGS: SteamTradeSettings;
+  VALIDATION: {
+    DO_AFTER_TRADE_VALUES: readonly DoAfterTrade[];
+    ORDER_VALUES: readonly CardOrder[];
+    MESSAGE_MAX_LENGTH: number;
+  };
 }
 
 // Add interfaces for Steam-specific window properties
