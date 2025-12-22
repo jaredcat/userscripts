@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Alienware Arena Filters
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.1.2
+// @version      1.1.3
 // @author       jaredcat
 // @description  Enhances Alienware Arena website with additional filtering options
 // @license      AGPL-3.0-or-later
