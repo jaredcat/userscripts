@@ -44,6 +44,7 @@
       const observer = new MutationObserver(() => {
         const productInfo = this.extractProductInfo(container);
         if (!productInfo) return;
+        if (productInfo.pricePerUnit === void 0) return;
         let pricePerUnitElement = priceContainer.querySelector(".price-per-unit");
         if (!pricePerUnitElement) {
           pricePerUnitElement = createPricePerUnitElement(
@@ -114,7 +115,7 @@
         (element2) => priceContainer.appendChild(element2)
       );
       const productInfo = this.extractProductInfo(productContainer);
-      if (!productInfo) return;
+      if (!productInfo?.pricePerUnit) return;
       const element = createPricePerUnitElement(
         formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit)
       );

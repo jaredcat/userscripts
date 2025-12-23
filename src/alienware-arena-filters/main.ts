@@ -29,7 +29,7 @@ async function getSettings(): Promise<FilterSettings> {
       const parsed: Partial<FilterSettings> =
         typeof savedSettings === 'string'
           ? JSON.parse(savedSettings)
-          : (savedSettings ?? {});
+          : ((savedSettings ?? {}) as Partial<FilterSettings>);
       // Merge saved settings with defaults
       Object.assign(settings, parsed);
       // Ensure userTier is a number or undefined

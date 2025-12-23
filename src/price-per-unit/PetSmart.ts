@@ -75,10 +75,10 @@ export class PetSmartPricePerUnit extends BaseSiteHandler {
 
     // Initial insertion
     const productInfo = this.extractProductInfo(productContainer);
-    if (!productInfo) return;
+    if (!productInfo?.pricePerUnit) return;
 
     const element = createPricePerUnitElement(
-      formatPricePerUnit(productInfo.pricePerUnit!, productInfo.unit),
+      formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit),
     );
     priceContainer.appendChild(element);
   }

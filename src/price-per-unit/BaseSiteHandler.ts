@@ -15,18 +15,19 @@ export abstract class BaseSiteHandler {
     const observer = new MutationObserver(() => {
       const productInfo = this.extractProductInfo(container);
       if (!productInfo) return;
+      if (productInfo.pricePerUnit === undefined) return;
 
       let pricePerUnitElement: HTMLElement | null =
         priceContainer.querySelector('.price-per-unit');
 
       if (!pricePerUnitElement) {
         pricePerUnitElement = createPricePerUnitElement(
-          formatPricePerUnit(productInfo.pricePerUnit!, productInfo.unit),
+          formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit),
         );
         onUpdate(pricePerUnitElement);
       } else {
         pricePerUnitElement.textContent = formatPricePerUnit(
-          productInfo.pricePerUnit!,
+          productInfo.pricePerUnit,
           productInfo.unit,
         );
       }

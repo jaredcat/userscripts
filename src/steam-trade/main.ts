@@ -353,7 +353,11 @@ class TradeHandler {
         inventory.rgInventory || {},
         cards,
       );
-      this.addCardsToTrade(cardMapping, cards, cardTypes[i]!);
+      const cardTypeArray = cardTypes[i];
+      if (!cardTypeArray) {
+        throw new Error(`Card types array at index ${i} is undefined`);
+      }
+      this.addCardsToTrade(cardMapping, cards, cardTypeArray);
     }
 
     const yourTypes = cardTypes[0];

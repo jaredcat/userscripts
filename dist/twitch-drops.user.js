@@ -161,8 +161,9 @@
       if (!openDropsHeading) return false;
       const openDropItems = [];
       const closedDropItems = [];
+      const openHeading = openDropsHeading;
       dropItemElements.forEach((item) => {
-        const position = openDropsHeading.compareDocumentPosition(item);
+        const position = openHeading.compareDocumentPosition(item);
         const isAfterOpen = (position & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
         let isBeforeClosed = true;
         let isAfterClosed = false;

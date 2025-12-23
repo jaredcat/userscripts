@@ -6,17 +6,20 @@ import ts from 'typescript-eslint';
 /** @type {import('eslint').Linter.Config[]} */
 export default [
   js.configs.recommended,
-  ...ts.configs.recommendedTypeChecked,
+  ...ts.configs.recommended,
   prettier,
   {
+    files: ['src/**/*.ts'],
+    ...ts.configs.recommendedTypeChecked[0],
     languageOptions: {
+      ...ts.configs.recommendedTypeChecked[0].languageOptions,
       globals: {
         ...globals.browser,
         ...globals.node,
       },
       parserOptions: {
-        project: true,
-        tsconfigRootDir: import.meta.dirname,
+        ...ts.configs.recommendedTypeChecked[0].languageOptions?.parserOptions,
+        projectService: true,
       },
     },
     rules: {
@@ -31,7 +34,7 @@ export default [
       '@typescript-eslint/no-unsafe-member-access': 'warn',
       '@typescript-eslint/no-unsafe-return': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-non-null-assertion': 'warn',
+      '@typescript-eslint/no-non-null-assertion': 'error',
       // Code quality
       complexity: ['warn', { max: 15 }],
       'max-lines-per-function': ['warn', { max: 100, skipComments: true }],
@@ -54,6 +57,14 @@ export default [
     },
   },
   {
-    ignores: ['dist/'],
+    ignores: [
+      'dist/',
+      '**/*.js',
+      '**/*.mjs',
+      '**/*.cjs',
+      'vite.config.ts',
+      'eslint.config.mjs',
+      'scripts/**',
+    ],
   },
 ];

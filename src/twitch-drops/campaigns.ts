@@ -181,9 +181,11 @@ export function initializeCampaigns(): void {
 
     const openDropItems: HTMLElement[] = [];
     const closedDropItems: HTMLElement[] = [];
+    // TypeScript narrows openDropsHeading to HTMLElement after null check
+    const openHeading: HTMLElement = openDropsHeading;
 
     dropItemElements.forEach((item) => {
-      const position = openDropsHeading!.compareDocumentPosition(item);
+      const position = openHeading.compareDocumentPosition(item);
       const isAfterOpen = (position & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
       let isBeforeClosed = true;
