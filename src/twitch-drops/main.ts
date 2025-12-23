@@ -12,10 +12,10 @@ const url = window.location.href;
 
 // Initialize campaigns page handler
 if (url.includes('/drops/campaigns')) {
-  await initializeCampaigns();
+  initializeCampaigns();
 }
 
 // Initialize inventory page handler
 if (url.includes('/drops/inventory')) {
-  await initializeInventory();
+  initializeInventory();
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Price Per Unit
 // @namespace    jaredcat/price-per-unit
-// @version      1.0.1
+// @version      1.0.2
 // @author       jaredcat
 // @description  Adds price per unit to product pages and enables sorting by unit price
 // @license      AGPL-3.0-or-later
@@ -15,7 +15,7 @@
 
   function parseSize(sizeText) {
     const match = sizeText.match(/^([\d.]+)\s*(.+)$/);
-    if (!match) return null;
+    if (!match?.[1] || !match?.[2]) return null;
     const quantity = parseFloat(match[1]);
     const unit = match[2].toLowerCase().trim();
     return { quantity, unit };
@@ -135,7 +135,7 @@
     ({ matcher }) => matcher(window.location.href)
   );
   if (currentHandler) {
-    new currentHandler.handler().initialize();
+    void new currentHandler.handler().initialize();
   }
 
 })();

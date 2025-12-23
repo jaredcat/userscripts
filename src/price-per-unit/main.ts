@@ -25,5 +25,5 @@ const currentHandler = SITE_HANDLERS.find(({ matcher }) =>
 );
 
 if (currentHandler) {
-  new currentHandler.handler().initialize();
+  void new currentHandler.handler().initialize();
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch Drops Page Tools
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.0.0
+// @version      1.0.1
 // @author       jaredcat
 // @description  Sort Twitch drops by end date and add filtering checkboxes
 // @license      AGPL-3.0-or-later
@@ -13,7 +13,7 @@
 // @grant        GM.setValue
 // ==/UserScript==
 
-(async function () {
+(function () {
   'use strict';
 
   const STORAGE_KEY = "twitchDropsFilterState";
@@ -51,7 +51,8 @@
   function parseEndDate$1(dateString) {
     const parts = dateString.split(" - ");
     if (parts.length < 2) return null;
-    const endDateStr = parts[1].trim();
+    const endDateStr = parts[1]?.trim();
+    if (!endDateStr) return null;
     const match = endDateStr.match(
       /([A-Za-z]{3}), ([A-Za-z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM)/
     );
@@ -60,6 +61,7 @@
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth();
+    const currentDay = currentDate.getDate();
     const months = {
       Jan: 0,
       Feb: 1,
@@ -74,21 +76,22 @@
       Nov: 10,
       Dec: 11
     };
+    if (month === void 0) return null;
     const monthNum = months[month];
     if (monthNum === void 0) return null;
     let year = currentYear;
     if (monthNum < currentMonth) {
       year = currentYear + 1;
     }
-    let hours = parseInt(hour, 10);
+    let hours = parseInt(hour ?? "0", 10);
     if (ampm === "PM" && hours !== 12) hours += 12;
     if (ampm === "AM" && hours === 12) hours = 0;
     return new Date(
       year,
       monthNum,
-      parseInt(day, 10),
+      parseInt(day || currentDay.toString(), 10),
       hours,
-      parseInt(minute, 10)
+      parseInt(minute ?? "0", 10)
     );
   }
   function addStyles$1() {
@@ -125,7 +128,7 @@
         `;
     document.head.appendChild(style);
   }
-  async function initializeCampaigns() {
+  function initializeCampaigns() {
     let initialized = false;
     async function processDrops() {
       if (initialized) return true;
@@ -176,7 +179,9 @@
       });
       if (openDropItems.length === 0) return false;
       addStyles$1();
-      const container = openDropItems[0].parentElement;
+      const firstItem = openDropItems[0];
+      if (!firstItem) return false;
+      const container = firstItem.parentElement;
       if (!container) return false;
       const itemsWithDates = openDropItems.map(
         (item, originalIndex) => {
@@ -204,15 +209,13 @@
             <input type="checkbox" id="drops-master-filter" class="drops-filter-checkbox" ${savedState?.masterEnabled !== false ? "checked" : ""}>
             <label for="drops-master-filter">Enable Filtering (uncheck to show all)</label>
         `;
-      container.insertBefore(masterFilterDiv, openDropItems[0]);
+      container.insertBefore(masterFilterDiv, firstItem);
       const masterCheckbox = document.getElementById(
         "drops-master-filter"
       );
       if (!masterCheckbox) return false;
       itemsWithDates.forEach((item, newIndex) => {
-        const button = item.element.querySelector(
-          ".accordion-header button"
-        );
+        const button = item.element.querySelector(".accordion-header button");
         if (button) {
           const savedChecked = savedState?.items?.[item.title];
           const isChecked = savedChecked !== void 0 ? savedChecked : true;
@@ -226,14 +229,20 @@
             if (masterCheckbox.checked) {
               item.element.classList.toggle("drops-hidden", !checkbox.checked);
             }
-            setTimeout(() => saveFilterState(), 100);
+            setTimeout(() => {
+              void saveFilterState();
+            }, 100);
           });
-          button.insertBefore(checkbox, button.firstChild);
           checkbox.addEventListener("click", (e) => {
             e.stopPropagation();
           });
           if (masterCheckbox.checked && !isChecked) {
             item.element.classList.add("drops-hidden");
+          }
+          if (button.firstChild) {
+            button.insertBefore(checkbox, button.firstChild);
+          } else {
+            button.appendChild(checkbox);
           }
         }
         container.appendChild(item.element);
@@ -252,7 +261,9 @@
             item.element.classList.remove("drops-hidden");
           }
         });
-        setTimeout(() => saveFilterState(), 100);
+        setTimeout(() => {
+          void saveFilterState();
+        }, 100);
       });
       if (closedDropItems.length > 0) {
         closedDropItems.forEach((item) => {
@@ -273,7 +284,7 @@
           });
           if (hasAccordion) {
             setTimeout(() => {
-              processDrops().then((success) => {
+              void processDrops().then((success) => {
                 if (success) {
                   observer.disconnect();
                 }
@@ -286,7 +297,7 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
     setTimeout(() => {
-      processDrops().then((success) => {
+      void processDrops().then((success) => {
         if (success) {
           observer.disconnect();
         }
@@ -356,6 +367,9 @@
       );
       if (match) {
         const [, , monthName, day, hour, minute, ampm, tz] = match;
+        if (!monthName || !day || !hour || !minute || !ampm || !tz) {
+          return null;
+        }
         const monthMap = {
           jan: 0,
           feb: 1,
@@ -402,7 +416,7 @@
             AKDT: 8,
             HST: 10
           };
-          const offset = tzOffsetMap[tz.toUpperCase()] || 0;
+          const offset = tzOffsetMap[tz.toUpperCase()] ?? 0;
           date.setUTCHours(date.getUTCHours() + offset);
           const now = new Date();
           const monthsDiff = (date.getTime() - now.getTime()) / (1e3 * 60 * 60 * 24 * 30);
@@ -464,10 +478,9 @@
       if (button.hasAttribute("data-drops-claim-clicked")) return;
       const buttonText = button.textContent?.trim();
       if (buttonText === "Claim Now") {
-        const htmlButton = button;
-        if (htmlButton.offsetParent !== null && !htmlButton.disabled) {
+        if (button.offsetParent !== null && !button.disabled) {
           button.setAttribute("data-drops-claim-clicked", "true");
-          htmlButton.click();
+          button.click();
           clickedCount++;
         }
       }
@@ -476,7 +489,7 @@
       console.log(`[Twitch Drops] Clicked ${clickedCount} "Claim Now" button(s)`);
     }
   }
-  async function initializeInventory() {
+  function initializeInventory() {
     clickClaimNowButtons();
     hideConnectedRewards();
     hideEndedRewards();
@@ -492,10 +505,10 @@
   }
   const url = window.location.href;
   if (url.includes("/drops/campaigns")) {
-    await( initializeCampaigns());
+    initializeCampaigns();
   }
   if (url.includes("/drops/inventory")) {
-    await( initializeInventory());
+    initializeInventory();
   }
 
 })();

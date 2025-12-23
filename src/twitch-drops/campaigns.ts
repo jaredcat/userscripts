@@ -53,7 +53,8 @@ function parseEndDate(dateString: string): Date | null {
   const parts = dateString.split(' - ');
   if (parts.length < 2) return null;
 
-  const endDateStr = parts[1].trim();
+  const endDateStr = parts[1]?.trim();
+  if (!endDateStr) return null;
   const match = endDateStr.match(
     /([A-Za-z]{3}), ([A-Za-z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM)/,
   );
@@ -63,6 +64,7 @@ function parseEndDate(dateString: string): Date | null {
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
+  const currentDay = currentDate.getDate();
 
   const months: Record<string, number> = {
     Jan: 0,
@@ -79,6 +81,7 @@ function parseEndDate(dateString: string): Date | null {
     Dec: 11,
   };
 
+  if (month === undefined) return null;
   const monthNum = months[month];
   if (monthNum === undefined) return null;
 
@@ -87,16 +90,16 @@ function parseEndDate(dateString: string): Date | null {
     year = currentYear + 1;
   }
 
-  let hours = parseInt(hour, 10);
+  let hours = parseInt(hour ?? '0', 10);
   if (ampm === 'PM' && hours !== 12) hours += 12;
   if (ampm === 'AM' && hours === 12) hours = 0;
 
   return new Date(
     year,
     monthNum,
-    parseInt(day, 10),
+    parseInt(day || currentDay.toString(), 10),
     hours,
-    parseInt(minute, 10),
+    parseInt(minute ?? '0', 10),
   );
 }
 
@@ -136,7 +139,7 @@ function addStyles(): void {
   document.head.appendChild(style);
 }
 
-export async function initializeCampaigns(): Promise<void> {
+export function initializeCampaigns(): void {
   let initialized = false;
 
   async function processDrops(): Promise<boolean> {
@@ -204,7 +207,9 @@ export async function initializeCampaigns(): Promise<void> {
 
     addStyles();
 
-    const container = openDropItems[0].parentElement;
+    const firstItem = openDropItems[0];
+    if (!firstItem) return false;
+    const container = firstItem.parentElement;
     if (!container) return false;
 
     const itemsWithDates: DropItem[] = openDropItems.map(
@@ -240,7 +245,7 @@ export async function initializeCampaigns(): Promise<void> {
             <label for="drops-master-filter">Enable Filtering (uncheck to show all)</label>
         `;
 
-    container.insertBefore(masterFilterDiv, openDropItems[0]);
+    container.insertBefore(masterFilterDiv, firstItem);
     const masterCheckbox = document.getElementById(
       'drops-master-filter',
     ) as HTMLInputElement | null;
@@ -248,9 +253,7 @@ export async function initializeCampaigns(): Promise<void> {
     if (!masterCheckbox) return false;
 
     itemsWithDates.forEach((item, newIndex) => {
-      const button = item.element.querySelector(
-        '.accordion-header button',
-      ) as HTMLElement | null;
+      const button = item.element.querySelector('.accordion-header button');
 
       if (button) {
         const savedChecked = savedState?.items?.[item.title];
@@ -267,10 +270,10 @@ export async function initializeCampaigns(): Promise<void> {
           if (masterCheckbox.checked) {
             item.element.classList.toggle('drops-hidden', !checkbox.checked);
           }
-          setTimeout(() => saveFilterState(), 100);
+          setTimeout(() => {
+            void saveFilterState();
+          }, 100);
         });
-
-        button.insertBefore(checkbox, button.firstChild);
 
         checkbox.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -278,6 +281,12 @@ export async function initializeCampaigns(): Promise<void> {
 
         if (masterCheckbox.checked && !isChecked) {
           item.element.classList.add('drops-hidden');
+        }
+
+        if (button.firstChild) {
+          button.insertBefore(checkbox, button.firstChild);
+        } else {
+          button.appendChild(checkbox);
         }
       }
 
@@ -299,7 +308,9 @@ export async function initializeCampaigns(): Promise<void> {
           item.element.classList.remove('drops-hidden');
         }
       });
-      setTimeout(() => saveFilterState(), 100);
+      setTimeout(() => {
+        void saveFilterState();
+      }, 100);
     });
 
     if (closedDropItems.length > 0) {
@@ -329,7 +340,7 @@ export async function initializeCampaigns(): Promise<void> {
 
         if (hasAccordion) {
           setTimeout(() => {
-            processDrops().then((success) => {
+            void processDrops().then((success) => {
               if (success) {
                 observer.disconnect();
               }
@@ -344,7 +355,7 @@ export async function initializeCampaigns(): Promise<void> {
   observer.observe(document.body, { childList: true, subtree: true });
 
   setTimeout(() => {
-    processDrops().then((success) => {
+    void processDrops().then((success) => {
       if (success) {
         observer.disconnect();
       }

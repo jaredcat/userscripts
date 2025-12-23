@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Alienware Arena Filters
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.1.3
+// @version      1.1.4
 // @author       jaredcat
 // @description  Enhances Alienware Arena website with additional filtering options
 // @license      AGPL-3.0-or-later
@@ -28,11 +28,13 @@
     const settings2 = { ...defaultSettings };
     if (savedSettings) {
       try {
-        const parsed = typeof savedSettings === "string" ? JSON.parse(savedSettings) : savedSettings;
+        const parsed = typeof savedSettings === "string" ? JSON.parse(savedSettings) : savedSettings ?? {};
         Object.assign(settings2, parsed);
-        settings2.userTier = parsed.userTier != null ? Number(parsed.userTier) : void 0;
-        if (Number.isNaN(settings2.userTier)) {
-          settings2.userTier = void 0;
+        if (parsed.userTier != null) {
+          const tierValue = Number(parsed.userTier);
+          if (!Number.isNaN(tierValue)) {
+            settings2.userTier = tierValue;
+          }
         }
       } catch (e) {
         console.error("Error parsing saved settings:", e);
@@ -51,7 +53,10 @@
   }
   function extractTier(text) {
     const match = text.match(/Tier\s*(\d+)/i);
-    return match ? parseInt(match[1]) : null;
+    if (match && match[1]) {
+      return parseInt(match[1], 10);
+    }
+    return null;
   }
   async function checkAndStoreTier() {
     const tierImg = document.querySelector(
@@ -59,8 +64,8 @@
     );
     if (tierImg) {
       const tierMatch = tierImg.src.match(/tier-tags\/(\d+)\.png/);
-      if (tierMatch) {
-        const userTier = parseInt(tierMatch[1]);
+      if (tierMatch && tierMatch[1]) {
+        const userTier = parseInt(tierMatch[1], 10);
         await saveSettings({ userTier });
         console.log("Stored user tier:", userTier);
       }
@@ -328,7 +333,7 @@
           )
         }
       };
-      saveSettings(newSettings);
+      void saveSettings(newSettings);
       const modal2 = document.getElementById("alienware-filter-settings");
       if (modal2) modal2.style.display = "none";
       location.reload();
@@ -388,7 +393,7 @@
     await( checkAndStoreTier());
   } else if (currentPath === "/community-giveaways") {
     const observer = new MutationObserver(() => {
-      filterGiveaways();
+      void filterGiveaways();
     });
     observer.observe(document.body, {
       childList: true,
@@ -396,7 +401,7 @@
     });
   } else if (currentPath.startsWith("/marketplace")) {
     const observer = new MutationObserver(() => {
-      filterMarketplace();
+      void filterMarketplace();
     });
     observer.observe(document.body, {
       childList: true,

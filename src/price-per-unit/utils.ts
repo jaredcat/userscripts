@@ -3,7 +3,7 @@ import { SizeInfo } from './types';
 export function parseSize(sizeText: string): SizeInfo | null {
   // Handle formats like "40 Lb", "20 oz", etc.
   const match = sizeText.match(/^([\d.]+)\s*(.+)$/);
-  if (!match) return null;
+  if (!match?.[1] || !match?.[2]) return null;
 
   const quantity = parseFloat(match[1]);
   const unit = match[2].toLowerCase().trim();

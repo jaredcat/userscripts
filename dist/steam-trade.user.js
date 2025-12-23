@@ -231,7 +231,7 @@
       this.cards = cards;
       this.oldCookie = CookieManager.getInventoryCookie() ?? null;
     }
-    async validateTrade() {
+    validateTrade() {
       const [yourCards, theirCards] = this.cards;
       if (!yourCards || !theirCards) {
         throw new Error("Invalid cards array");
@@ -279,7 +279,7 @@
       }
       return { yours: matchingYourCards, theirs: matchingTheirCards };
     }
-    async processCards() {
+    processCards() {
       const cardTypes = [[], []];
       for (let i = 0; i < 2; i++) {
         const user = this.users[i];
@@ -299,7 +299,7 @@
           inventory.rgInventory || {},
           cards
         );
-        await this.addCardsToTrade(cardMapping, cards, cardTypes[i]);
+        this.addCardsToTrade(cardMapping, cards, cardTypes[i]);
       }
       const yourTypes = cardTypes[0];
       const theirTypes = cardTypes[1];
@@ -335,7 +335,7 @@
       }
       return mapping;
     }
-    async addCardsToTrade(mapping, requestedCards, typeArray) {
+    addCardsToTrade(mapping, requestedCards, typeArray) {
       for (const classid of requestedCards) {
         const availableCards = mapping[classid] || [];
         if (!availableCards.length) throw new Error("Missing cards");
@@ -367,7 +367,7 @@
     `;
       document.body.appendChild(script);
     }
-    async completeTrade() {
+    completeTrade() {
       if (this.settings.AUTO_SEND) {
         unsafeWindow.ToggleReady(true);
         unsafeWindow.CTradeOfferStateManager.ConfirmTradeOffer();
@@ -379,11 +379,11 @@
       this.bindEvents();
     }
     bindEvents() {
-      document.addEventListener("click", async (e) => {
+      document.addEventListener("click", (e) => {
         const tradeButton = e.target?.closest(".user-results > .card-header > div > .btn");
         if (!tradeButton) return;
         e.preventDefault();
-        await this.handleTradeClick(tradeButton);
+        void this.handleTradeClick(tradeButton);
       });
     }
     async handleTradeClick(button) {
@@ -395,13 +395,13 @@
         return;
       }
       for (let i = 0; i < youParams.length; i += CONFIG.TRADE.CHUNK_SIZE) {
-        await this.openTradeWindow(url, youParams, themParams, i);
+        this.openTradeWindow(url, youParams, themParams, i);
         await new Promise(
           (resolve) => setTimeout(resolve, CONFIG.TRADE.WINDOW_DELAY)
         );
       }
     }
-    async openTradeWindow(baseUrl, youParams, themParams, startIndex) {
+    openTradeWindow(baseUrl, youParams, themParams, startIndex) {
       const newUrl = new URL(baseUrl);
       newUrl.search = "";
       const youChunk = youParams.slice(
@@ -600,7 +600,9 @@
           }
         });
       });
-      document.getElementById("restore")?.addEventListener("click", SettingsManager.restoreDefaults);
+      document.getElementById("restore")?.addEventListener("click", () => {
+        void SettingsManager.restoreDefaults();
+      });
     }
     static toggleVisibility() {
       const userscriptSettings = document.getElementById("userscript-settings");
@@ -720,7 +722,7 @@
         };
         checkInventories();
       });
-      await tradeHandler.validateTrade();
+      tradeHandler.validateTrade();
       unsafeWindow.TradePageSelectInventory(
         unsafeWindow.UserYou,
         CONFIG.STEAM.APP_ID,
@@ -732,9 +734,9 @@
       if (tradeOfferNote) {
         tradeOfferNote.value = settings.MESSAGE;
       }
-      await tradeHandler.processCards();
+      tradeHandler.processCards();
       tradeHandler.injectPostTradeHandler();
-      await tradeHandler.completeTrade();
+      tradeHandler.completeTrade();
     } catch (error) {
       if (error instanceof Error) {
         unsafeWindow.ShowAlertDialog("Trade Error", error.message);

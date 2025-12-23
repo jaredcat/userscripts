@@ -87,6 +87,9 @@ function parseEndDate(dateText: string): Date | null {
     );
     if (match) {
       const [, , monthName, day, hour, minute, ampm, tz] = match;
+      if (!monthName || !day || !hour || !minute || !ampm || !tz) {
+        return null;
+      }
       const monthMap: Record<string, number> = {
         jan: 0,
         feb: 1,
@@ -142,7 +145,7 @@ function parseEndDate(dateText: string): Date | null {
           HST: 10,
         };
 
-        const offset = tzOffsetMap[tz.toUpperCase()] || 0;
+        const offset = tzOffsetMap[tz.toUpperCase()] ?? 0;
         // Add offset to convert from timezone to UTC
         date.setUTCHours(date.getUTCHours() + offset);
 
@@ -246,11 +249,10 @@ function clickClaimNowButtons(): void {
     const buttonText = button.textContent?.trim();
     if (buttonText === 'Claim Now') {
       // Check if button is visible and not disabled
-      const htmlButton = button as HTMLButtonElement;
-      if (htmlButton.offsetParent !== null && !htmlButton.disabled) {
+      if (button.offsetParent !== null && !button.disabled) {
         // Mark as clicked before clicking to avoid duplicate clicks
         button.setAttribute('data-drops-claim-clicked', 'true');
-        htmlButton.click();
+        button.click();
         clickedCount++;
       }
     }
@@ -261,7 +263,7 @@ function clickClaimNowButtons(): void {
   }
 }
 
-export async function initializeInventory(): Promise<void> {
+export function initializeInventory(): void {
   // Click "Claim Now" buttons on initial load
   clickClaimNowButtons();
 

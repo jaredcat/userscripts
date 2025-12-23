@@ -19,25 +19,25 @@ const defaultSettings: FilterSettings = {
 };
 
 async function getSettings(): Promise<FilterSettings> {
-  const savedSettings = await GM.getValue('filterSettings');
+  const savedSettings: string | Partial<FilterSettings> | null =
+    await GM.getValue('filterSettings');
   // Start with default settings as base
   const settings: FilterSettings = { ...defaultSettings };
 
   if (savedSettings) {
     try {
-      const parsed =
+      const parsed: Partial<FilterSettings> =
         typeof savedSettings === 'string'
           ? JSON.parse(savedSettings)
-          : (savedSettings as Partial<FilterSettings>);
+          : (savedSettings ?? {});
       // Merge saved settings with defaults
       Object.assign(settings, parsed);
       // Ensure userTier is a number or undefined
-      settings.userTier =
-        parsed.userTier != null ? Number(parsed.userTier) : undefined;
-
-      // If Number() returned NaN, set to undefined
-      if (Number.isNaN(settings.userTier)) {
-        settings.userTier = undefined;
+      if (parsed.userTier != null) {
+        const tierValue = Number(parsed.userTier);
+        if (!Number.isNaN(tierValue)) {
+          settings.userTier = tierValue;
+        }
       }
     } catch (e) {
       console.error('Error parsing saved settings:', e);
@@ -61,7 +61,10 @@ async function saveSettings(settings: Partial<FilterSettings>): Promise<void> {
 // Function to extract tier number from text
 function extractTier(text: string): number | null {
   const match = text.match(/Tier\s*(\d+)/i);
-  return match ? parseInt(match[1]) : null;
+  if (match && match[1]) {
+    return parseInt(match[1], 10);
+  }
+  return null;
 }
 
 // Function to check and store user's tier on control center page
@@ -71,8 +74,8 @@ async function checkAndStoreTier(): Promise<void> {
   );
   if (tierImg) {
     const tierMatch = tierImg.src.match(/tier-tags\/(\d+)\.png/);
-    if (tierMatch) {
-      const userTier = parseInt(tierMatch[1]);
+    if (tierMatch && tierMatch[1]) {
+      const userTier = parseInt(tierMatch[1], 10);
       await saveSettings({ userTier });
       console.log('Stored user tier:', userTier);
     }
@@ -386,7 +389,7 @@ async function createSettingsMenu(): Promise<void> {
           ),
         }),
       };
-      saveSettings(newSettings);
+      void saveSettings(newSettings);
       const modal = document.getElementById('alienware-filter-settings');
       if (modal) modal.style.display = 'none';
       location.reload(); // Reload to apply new settings
@@ -466,7 +469,7 @@ if (settings.autoSyncTier && currentPath === '/control-center') {
 } else if (currentPath === '/community-giveaways') {
   // Add mutation observer for dynamic content loading
   const observer = new MutationObserver(() => {
-    filterGiveaways();
+    void filterGiveaways();
   });
 
   observer.observe(document.body, {
@@ -476,7 +479,7 @@ if (settings.autoSyncTier && currentPath === '/control-center') {
 } else if (currentPath.startsWith('/marketplace')) {
   // Add mutation observer for dynamic content loading
   const observer = new MutationObserver(() => {
-    filterMarketplace();
+    void filterMarketplace();
   });
 
   observer.observe(document.body, {
