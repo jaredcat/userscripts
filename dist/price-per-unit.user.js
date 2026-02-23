@@ -44,29 +44,27 @@
   }
   class BaseSiteHandler {
     createObserver(container, priceContainer, onUpdate) {
+      const observeOpts = {
+        childList: true,
+        subtree: true,
+        characterData: true
+      };
       const observer = new MutationObserver(() => {
         const productInfo = this.extractProductInfo(container);
         if (!productInfo) return;
         if (productInfo.pricePerUnit === void 0) return;
+        const newText = formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit);
         let pricePerUnitElement = priceContainer.querySelector(".price-per-unit");
+        observer.disconnect();
         if (!pricePerUnitElement) {
-          pricePerUnitElement = createPricePerUnitElement(
-            formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit)
-          );
+          pricePerUnitElement = createPricePerUnitElement(newText);
           onUpdate(pricePerUnitElement);
-        } else {
-          pricePerUnitElement.textContent = formatPricePerUnit(
-            productInfo.pricePerUnit,
-            productInfo.unit
-          );
+        } else if (pricePerUnitElement.textContent !== newText) {
+          pricePerUnitElement.textContent = newText;
         }
-        console.debug("Price per unit updated:", pricePerUnitElement.textContent);
+        observer.observe(priceContainer, observeOpts);
       });
-      observer.observe(priceContainer, {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
+      observer.observe(priceContainer, observeOpts);
       return observer;
     }
   }
@@ -335,29 +333,37 @@ get targetWindow() {
     }
   }
   class PetSmartPricePerUnit extends BaseSiteHandler {
+    static PRODUCT_CONTAINER = ".pdp__details";
     static PRICE_SELECTOR = ".sparky-c-price";
-    static SIZE_SELECTOR = ".size-variant__fields .sparky-c-definition-list__description";
     async initialize() {
       if (this.isProductPage()) {
         await this.addPricePerUnit();
+      } else {
+        await this.addPricePerUnitOnListingPage();
       }
     }
     isProductPage() {
-      return !!document.querySelector(".product-details__layout-right");
+      return !!document.querySelector(PetSmartPricePerUnit.PRODUCT_CONTAINER);
+    }
+    getSizeText(container) {
+      const keys = container.querySelectorAll(".variants-fieldset__legend-key");
+      for (const key of keys) {
+        if (key.textContent?.toLowerCase().includes("size")) {
+          const value = key.parentElement?.querySelector(".variants-fieldset__legend-value");
+          if (value?.textContent) return value.textContent.trim();
+        }
+      }
+      return container.querySelector("h1")?.textContent?.trim() ?? "";
     }
     extractProductInfo(element) {
-      const priceElement = element.querySelector(
-        PetSmartPricePerUnit.PRICE_SELECTOR
-      );
-      const sizeElement = element.querySelector(
-        PetSmartPricePerUnit.SIZE_SELECTOR
-      );
-      if (!priceElement || !sizeElement) return null;
-      const salePrice = priceElement.querySelector(".sparky-c-price--sale");
-      const priceText = (salePrice?.textContent || priceElement.textContent)?.trim() || "";
-      const sizeText = sizeElement.textContent?.trim() || "";
-      const price = parseFloat(priceText.replace("$", ""));
-      if (isNaN(price)) return null;
+      const priceEl = element.querySelector(PetSmartPricePerUnit.PRICE_SELECTOR);
+      if (!priceEl) return null;
+      const salePrice = priceEl.querySelector(".sparky-c-price--sale");
+      const priceText = (salePrice?.textContent || priceEl.textContent)?.trim() || "";
+      const priceMatch = priceText.match(/\$[\d,]+(?:\.\d{2})?/);
+      const price = priceMatch ? parseFloat(priceMatch[0].replace(/[$,]/g, "")) : NaN;
+      if (!Number.isFinite(price)) return null;
+      const sizeText = this.getSizeText(element);
       const sizeInfo = parseSize(sizeText);
       if (!sizeInfo) return null;
       const pricePerUnit = price / sizeInfo.quantity;
@@ -371,10 +377,10 @@ get targetWindow() {
     async addPricePerUnit() {
       await new Promise((resolve) => setTimeout(resolve, 1e3));
       const productContainer = document.querySelector(
-        ".product-details__layout-right"
+        PetSmartPricePerUnit.PRODUCT_CONTAINER
       );
       if (!productContainer) return;
-      const priceContainer = productContainer.querySelector(".product-price");
+      const priceContainer = productContainer.querySelector(".product-price") ?? productContainer.querySelector(".product-price-sparky");
       if (!priceContainer) return;
       this.createObserver(
         productContainer,
@@ -387,6 +393,55 @@ get targetWindow() {
         formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit)
       );
       priceContainer.appendChild(element);
+    }
+    async addPricePerUnitOnListingPage() {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const cards = document.querySelectorAll('[data-testid="product-card"]');
+      for (const card of cards) {
+        this.addPpuToCard(card);
+      }
+      const container = cards[0]?.parentElement;
+      if (container) {
+        new MutationObserver((mutations) => {
+          for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+              if (!(node instanceof HTMLElement)) continue;
+              const newCards = node.matches('[data-testid="product-card"]') ? [node] : Array.from(node.querySelectorAll('[data-testid="product-card"]'));
+              for (const card of newCards) this.addPpuToCard(card);
+            }
+          }
+        }).observe(container, { childList: true, subtree: true });
+      }
+    }
+parseSizeFromTitle(title) {
+      const regex = /([\d.]+)[\s-]*(lb\.?s?|oz\.?|count|ct\.?|pack|pk\.?|each|ea\.?|g|kg|ml|L)\b/gi;
+      let last = null;
+      let match;
+      while ((match = regex.exec(title)) !== null) {
+        last = match;
+      }
+      if (!last?.[1] || !last?.[2]) return null;
+      return {
+        quantity: parseFloat(last[1]),
+        unit: last[2].toLowerCase().replace(/\.$/, "").trim()
+      };
+    }
+    addPpuToCard(card) {
+      if (card.querySelector(".price-per-unit")) return;
+      const title = card.querySelector(".sparky-c-product-card__title")?.textContent?.trim() ?? "";
+      const sizeInfo = this.parseSizeFromTitle(title);
+      if (!sizeInfo) return;
+      const priceGroup = card.querySelector(".sparky-c-product-card__price-group");
+      if (!priceGroup) return;
+      const priceText = priceGroup.textContent?.trim() ?? "";
+      if (priceText.includes("-")) return;
+      const priceMatch = priceText.match(/\$[\d,]+(?:\.\d{2})?/);
+      const price = priceMatch ? parseFloat(priceMatch[0].replace(/[$,]/g, "")) : NaN;
+      if (!Number.isFinite(price)) return;
+      const pricePerUnit = price / sizeInfo.quantity;
+      priceGroup.appendChild(
+        createPricePerUnitElement(formatPricePerUnit(pricePerUnit, sizeInfo.unit))
+      );
     }
   }
   const SITE_HANDLERS = [

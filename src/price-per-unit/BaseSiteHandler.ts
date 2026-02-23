@@ -12,35 +12,32 @@ export abstract class BaseSiteHandler {
     priceContainer: Element,
     onUpdate: (element: HTMLElement) => void,
   ): MutationObserver {
+    const observeOpts: MutationObserverInit = {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    };
+
     const observer = new MutationObserver(() => {
       const productInfo = this.extractProductInfo(container);
       if (!productInfo) return;
       if (productInfo.pricePerUnit === undefined) return;
 
+      const newText = formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit);
       let pricePerUnitElement: HTMLElement | null =
         priceContainer.querySelector('.price-per-unit');
 
+      observer.disconnect();
       if (!pricePerUnitElement) {
-        pricePerUnitElement = createPricePerUnitElement(
-          formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit),
-        );
+        pricePerUnitElement = createPricePerUnitElement(newText);
         onUpdate(pricePerUnitElement);
-      } else {
-        pricePerUnitElement.textContent = formatPricePerUnit(
-          productInfo.pricePerUnit,
-          productInfo.unit,
-        );
+      } else if (pricePerUnitElement.textContent !== newText) {
+        pricePerUnitElement.textContent = newText;
       }
-
-      console.debug('Price per unit updated:', pricePerUnitElement.textContent);
+      observer.observe(priceContainer, observeOpts);
     });
 
-    observer.observe(priceContainer, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
+    observer.observe(priceContainer, observeOpts);
     return observer;
   }
 }
