@@ -1,18 +1,18 @@
 import { SizeInfo } from './types';
 
 export function parseSize(sizeText: string): SizeInfo | null {
-  // Handle formats like "40 Lb", "20 oz", etc.
-  const match = sizeText.match(/^([\d.]+)\s*(.+)$/);
+  const match = sizeText.match(/([\d.]+)[\s-]*(lb\.?s?|oz\.?|count|ct\.?|pack|pk\.?|each|ea\.?|g|kg|ml|L)\b/i);
   if (!match?.[1] || !match?.[2]) return null;
 
   const quantity = parseFloat(match[1]);
-  const unit = match[2].toLowerCase().trim();
+  const unit = match[2].toLowerCase().replace(/\.$/, '').trim();
 
   return { quantity, unit };
 }
 
 export function formatPricePerUnit(price: number, unit: string): string {
-  return `$${price.toFixed(3)}/${unit}`;
+  const decimals = price < 0.01 ? 4 : price < 1 ? 3 : 2;
+  return `$${price.toFixed(decimals)}/${unit}`;
 }
 
 export function createPricePerUnitElement(text: string): HTMLElement {

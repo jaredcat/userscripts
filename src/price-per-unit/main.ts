@@ -1,3 +1,4 @@
+import { ChewyPricePerUnit } from './Chewy';
 import { PetSmartPricePerUnit } from './PetSmart';
 
 const SITE_HANDLERS = [
@@ -5,11 +6,10 @@ const SITE_HANDLERS = [
     matcher: (url: string) => url.includes('petsmart.com'),
     handler: PetSmartPricePerUnit,
   },
-  // Add future sites here like:
-  // {
-  //   matcher: (url: string) => url.includes('somestore.com'),
-  //   handler: SomeStorePricePerUnit,
-  // },
+  {
+    matcher: (url: string) => url.includes('chewy.com'),
+    handler: ChewyPricePerUnit,
+  },
 ];
 
 // Development hot reload
@@ -25,5 +25,5 @@ const currentHandler = SITE_HANDLERS.find(({ matcher }) =>
 );
 
 if (currentHandler) {
-  void new currentHandler.handler().initialize();
+  new currentHandler.handler().initialize().catch(console.error);
 }
