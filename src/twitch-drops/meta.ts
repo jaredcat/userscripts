@@ -1,9 +1,9 @@
-import { MonkeyUserScript } from 'vite-plugin-monkey';
+import type { MonkeyUserScript } from 'vite-plugin-monkey';
 
 const metadata: MonkeyUserScript = {
   name: 'Twitch Drops Page Tools',
   namespace: 'https://github.com/jaredcat/userscripts',
-  version: '1.0.1',
+  version: '1.0.2',
   description: 'Sort Twitch drops by end date and add filtering checkboxes',
   match: [
     '*://www.twitch.tv/drops/campaigns*',

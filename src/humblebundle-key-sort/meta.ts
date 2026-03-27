@@ -1,8 +1,8 @@
-import { MonkeyUserScript } from 'vite-plugin-monkey';
+import type { MonkeyUserScript } from 'vite-plugin-monkey';
 
 const metadata: MonkeyUserScript = {
   name: 'Humble Bundle Key Sort',
-  version: '1.0.0',
+  version: '1.0.1',
   description: 'Sort Humble Bundle by claimed status',
   match: [
     '*://www.humblebundle.com/membership/*',

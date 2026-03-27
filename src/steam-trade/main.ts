@@ -1,5 +1,5 @@
 import { GM } from '$';
-import * as jQuery from 'jquery';
+import jQuery from 'jquery';
 import {
   CardOrder,
   DoAfterTrade,

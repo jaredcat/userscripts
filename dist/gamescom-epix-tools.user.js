@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gamescom Epix Tools
 // @namespace    jaredcat/gamescom-epix-tools
-// @version      2.1.1
+// @version      2.1.2
 // @author       jaredcat
 // @description  Tools for Gamescom Epix 2024 event website
 // @license      AGPL-3.0-or-later
@@ -10,30 +10,25 @@
 // @match        *://gamescom.global/*
 // ==/UserScript==
 
-(function () {
-  'use strict';
-
-  class GamescomEpixTools {
-    toolbar = null;
-    constructor() {
-      this.init();
-    }
-    init() {
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", () => this.setup());
-      } else {
-        this.setup();
-      }
-    }
-    setup() {
-      this.addToolbar();
-      this.addKeyboardShortcuts();
-      this.observePageChanges();
-    }
-    addToolbar() {
-      this.toolbar = document.createElement("div");
-      this.toolbar.className = "epix-tools-toolbar";
-      this.toolbar.style.cssText = `
+(function() {
+var GamescomEpixTools = class {
+		toolbar = null;
+		constructor() {
+			this.init();
+		}
+		init() {
+			if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => this.setup());
+			else this.setup();
+		}
+		setup() {
+			this.addToolbar();
+			this.addKeyboardShortcuts();
+			this.observePageChanges();
+		}
+		addToolbar() {
+			this.toolbar = document.createElement("div");
+			this.toolbar.className = "epix-tools-toolbar";
+			this.toolbar.style.cssText = `
       position: fixed;
       top: 10px;
       right: 10px;
@@ -45,27 +40,26 @@
       flex-direction: column;
       gap: 5px;
     `;
-      const buttons = [
-        {
-          text: "Quick Join Queue",
-          action: () => this.quickJoinQueue(),
-          hotkey: "J"
-        },
-        {
-          text: "Skip Current Video",
-          action: () => this.skipCurrentVideo(),
-          hotkey: "S"
-        },
-        {
-          text: "Auto-Collect Rewards",
-          action: () => this.toggleAutoCollect(),
-          hotkey: "R"
-        }
-      ];
-      buttons.forEach(({ text, action, hotkey }) => {
-        const button = document.createElement("button");
-        button.textContent = `${text} (${hotkey})`;
-        button.style.cssText = `
+			[
+				{
+					text: "Quick Join Queue",
+					action: () => this.quickJoinQueue(),
+					hotkey: "J"
+				},
+				{
+					text: "Skip Current Video",
+					action: () => this.skipCurrentVideo(),
+					hotkey: "S"
+				},
+				{
+					text: "Auto-Collect Rewards",
+					action: () => this.toggleAutoCollect(),
+					hotkey: "R"
+				}
+			].forEach(({ text, action, hotkey }) => {
+				const button = document.createElement("button");
+				button.textContent = `${text} (${hotkey})`;
+				button.style.cssText = `
         padding: 5px 10px;
         margin: 2px;
         border: none;
@@ -74,70 +68,54 @@
         color: white;
         cursor: pointer;
       `;
-        button.addEventListener("click", action);
-        this.toolbar?.appendChild(button);
-      });
-      document.body.appendChild(this.toolbar);
-    }
-    addKeyboardShortcuts() {
-      document.addEventListener("keydown", (e) => {
-        if (e.target instanceof HTMLInputElement) return;
-        switch (e.key.toUpperCase()) {
-          case "J":
-            this.quickJoinQueue();
-            break;
-          case "S":
-            this.skipCurrentVideo();
-            break;
-          case "R":
-            this.toggleAutoCollect();
-            break;
-        }
-      });
-    }
-    quickJoinQueue() {
-      const joinButton = document.querySelector(
-        'button[data-testid="join-queue-button"]'
-      );
-      joinButton?.click();
-    }
-    skipCurrentVideo() {
-      const skipButton = document.querySelector(
-        'button[data-testid="skip-video-button"]'
-      );
-      skipButton?.click();
-    }
-    autoCollectInterval = null;
-    toggleAutoCollect() {
-      if (this.autoCollectInterval) {
-        window.clearInterval(this.autoCollectInterval);
-        this.autoCollectInterval = null;
-        console.log("Auto-collect disabled");
-      } else {
-        this.autoCollectInterval = window.setInterval(() => {
-          const collectButtons = document.querySelectorAll(
-            'button[data-testid="collect-reward-button"]'
-          );
-          collectButtons.forEach((button) => button.click());
-        }, 5e3);
-        console.log("Auto-collect enabled");
-      }
-    }
-    observePageChanges() {
-      const observer = new MutationObserver(() => {
-        if (this.autoCollectInterval) {
-          const collectButtons = document.querySelectorAll(
-            'button[data-testid="collect-reward-button"]'
-          );
-          collectButtons.forEach((button) => button.click());
-        }
-      });
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
-    }
-  }
-  new GamescomEpixTools();
-
+				button.addEventListener("click", action);
+				this.toolbar?.appendChild(button);
+			});
+			document.body.appendChild(this.toolbar);
+		}
+		addKeyboardShortcuts() {
+			document.addEventListener("keydown", (e) => {
+				if (e.target instanceof HTMLInputElement) return;
+				switch (e.key.toUpperCase()) {
+					case "J":
+						this.quickJoinQueue();
+						break;
+					case "S":
+						this.skipCurrentVideo();
+						break;
+					case "R":
+						this.toggleAutoCollect();
+						break;
+				}
+			});
+		}
+		quickJoinQueue() {
+			document.querySelector("button[data-testid=\"join-queue-button\"]")?.click();
+		}
+		skipCurrentVideo() {
+			document.querySelector("button[data-testid=\"skip-video-button\"]")?.click();
+		}
+		autoCollectInterval = null;
+		toggleAutoCollect() {
+			if (this.autoCollectInterval) {
+				window.clearInterval(this.autoCollectInterval);
+				this.autoCollectInterval = null;
+				console.log("Auto-collect disabled");
+			} else {
+				this.autoCollectInterval = window.setInterval(() => {
+					document.querySelectorAll("button[data-testid=\"collect-reward-button\"]").forEach((button) => button.click());
+				}, 5e3);
+				console.log("Auto-collect enabled");
+			}
+		}
+		observePageChanges() {
+			new MutationObserver(() => {
+				if (this.autoCollectInterval) document.querySelectorAll("button[data-testid=\"collect-reward-button\"]").forEach((button) => button.click());
+			}).observe(document.body, {
+				childList: true,
+				subtree: true
+			});
+		}
+	};
+	new GamescomEpixTools();
 })();

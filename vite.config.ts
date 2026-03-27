@@ -46,7 +46,8 @@ export default defineConfig(({ mode, command }) => {
             ? `http://localhost:3000/${scriptName}.user.js`
             : `https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/${scriptName}.user.js`,
           license: 'AGPL-3.0-or-later',
-          ...require(`./src/${scriptName}/meta.ts`).default,
+          ...require(resolve(process.cwd(), 'src', scriptName, 'meta.ts'))
+            .default,
         },
       }),
     ],
