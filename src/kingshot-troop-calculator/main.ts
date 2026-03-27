@@ -141,7 +141,6 @@ function injectStyles(): void {
       .ks-pct-cav   { color: #f06292; }
       .ks-pct-arc   { color: #4caf82; }
       .ks-pct-warn  { color: #ffab40; font-size: 0.8em; display: block; margin-top: 2px; }
-      .ks-actual     { color: #a78bfa; font-size: 0.8em; }
     `;
   document.head.appendChild(style);
 }
@@ -332,8 +331,6 @@ function processTrainingTable(v: InputValues): void {
   const table = card.querySelector('table');
   if (!table) return;
 
-  table.querySelectorAll('td .ks-actual').forEach((el) => el.remove());
-
   const rows = [...table.querySelectorAll('tr')];
 
   const presets: {
@@ -369,6 +366,7 @@ function processTrainingTable(v: InputValues): void {
   rows.forEach((row) => {
     const label = row.cells[0]?.textContent?.trim();
     if (!label) return;
+    if (/^preset$/i.test(label)) return;
 
     const preset = presets.find((p) => p.pattern.test(label));
     if (!preset) return;
@@ -376,32 +374,62 @@ function processTrainingTable(v: InputValues): void {
     const { infR, cavR, arcR, squads } = preset;
     const mySquad = v.mySquad;
 
-    const actualInfGap = Math.max(
+    const infGap = Math.max(
       0,
       Math.round(mySquad * infR * squads) - v.totalInf,
     );
-    const actualCavGap = Math.max(
+    const cavGap = Math.max(
       0,
       Math.round(mySquad * cavR * squads) - v.totalCav,
     );
-    const actualArcGap = Math.max(
+    const arcGap = Math.max(
       0,
       Math.round(mySquad * arcR * squads) - v.totalArc,
     );
 
-    const gaps = [actualInfGap, actualCavGap, actualArcGap];
+    const gaps = [infGap, cavGap, arcGap];
 
     [1, 2, 3].forEach((cellIdx, i) => {
       const cell = row.cells[cellIdx];
       if (!cell) return;
       const gap = gaps[i];
-      if (gap === undefined || gap === 0) return;
-      const span = document.createElement('span');
-      span.className = 'ks-actual';
-      span.textContent = ` (${fmt(gap)})`;
-      cell.appendChild(span);
+      if (gap === undefined) return;
+      cell.textContent = fmt(gap);
     });
   });
+}
+
+// ─── Training Focus: dynamic “targets” explainer ─────────────────────────────
+// Replaces the site’s fixed “× 4” copy with squads from the Bear / Vikings sliders.
+
+function updateTrainingFocusExplainer(v: InputValues): void {
+  const h3 = [...document.querySelectorAll('h3')].find((el) =>
+    /training focus/i.test(el.textContent ?? ''),
+  );
+  if (!h3) return;
+  const card = h3.closest(
+    '[class*="bg-white"], [class*="bg-gray-8"], [class*="rounded-lg"]',
+  );
+  if (!card) return;
+
+  const bear = v.bearSquads;
+  const vik = v.vikSquads;
+  const balancedSquads = Math.max(bear, vik);
+
+  const isExplainerText = (text: string) =>
+    /Targets are computed/i.test(text) && text.length < 500;
+
+  // Only match a <p> so we never replace a wrapper div and drop the table.
+  const el = [...card.querySelectorAll('p')].find((node) =>
+    isExplainerText(node.textContent ?? ''),
+  );
+  if (!el) return;
+
+  el.textContent =
+    `Targets are computed as (mySquad × ratio × squads). ` +
+    `Balanced uses ${balancedSquads} (highest of Bear or Viking). ` +
+    `Bear uses ${bear}. Vikings uses ${vik}. ` +
+    `Gaps are non-negative.`;
 }
 
 // ─── Main run ─────────────────────────────────────────────────────────────────
@@ -423,6 +451,7 @@ function run(): void {
   });
 
   processTrainingTable(v);
+  updateTrainingFocusExplainer(v);
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────────────

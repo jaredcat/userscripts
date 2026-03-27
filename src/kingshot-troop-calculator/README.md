@@ -1,6 +1,6 @@
 # Kingshot Troop Formation %
 
-Userscript for [Kingshot Guide](https://www.kingshotguide.org/calculator/troops-calculator)'s troop calculator: it injects per-squad formation preset percentages into the Bear and Vikings split tables, warns when any troop type falls below its preset target, adds actual squad-count totals to Training Focus gaps, and persists inputs in `localStorage` across sessions.
+Userscript for [Kingshot Guide](https://www.kingshotguide.org/calculator/troops-calculator)'s troop calculator: it injects per-squad formation preset percentages into the Bear and Vikings split tables, warns when any troop type falls below its preset target, recomputes Training Focus gap **cells** and the footer line using your Bear/Viking squad sliders (instead of the site’s fixed ×4), and persists inputs in `localStorage` across sessions.
 
 ## Install
 
@@ -14,7 +14,7 @@ Userscript for [Kingshot Guide](https://www.kingshotguide.org/calculator/troops-
 
 - Per-squad formation preset percentages on Bear and Vikings split tables
 - Warnings when a troop type is below its preset target
-- Actual squad-count totals on Training Focus gap rows
+- Training Focus table gaps and explainer use `mySquad × ratio × squads` with squads from the sliders (Balanced = max(Bear, Vikings))
 - Input values saved to `localStorage` (`ks-troop-calc-inputs`) between visits
 
 ## Supported page

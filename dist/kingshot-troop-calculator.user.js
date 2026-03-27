@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Kingshot Troop Formation %
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.0.0
+// @version      1.0.2
 // @author       jaredcat
-// @description  Injects per-squad in-game formation preset percentages into the Bear and Vikings Split tables. Warns when any troop type falls below its preset target. Adds actual-squad-count totals to Training Focus gaps. Persists inputs to localStorage across sessions.
+// @description  Injects per-squad in-game formation preset percentages into the Bear and Vikings Split tables. Warns when any troop type falls below its preset target. Recomputes Training Focus gap cells and explainer using Bear/Viking squad sliders (not fixed ×4). Persists inputs to localStorage across sessions.
 // @license      AGPL-3.0-or-later
 // @downloadURL  https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/kingshot-troop-calculator.user.js
 // @updateURL    https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/kingshot-troop-calculator.user.js
@@ -91,7 +91,6 @@ var STORAGE_KEY = "ks-troop-calc-inputs";
       .ks-pct-cav   { color: #f06292; }
       .ks-pct-arc   { color: #4caf82; }
       .ks-pct-warn  { color: #ffab40; font-size: 0.8em; display: block; margin-top: 2px; }
-      .ks-actual     { color: #a78bfa; font-size: 0.8em; }
     `;
 		document.head.appendChild(style);
 	}
@@ -215,7 +214,6 @@ var STORAGE_KEY = "ks-troop-calc-inputs";
 		if (!card) return;
 		const table = card.querySelector("table");
 		if (!table) return;
-		table.querySelectorAll("td .ks-actual").forEach((el) => el.remove());
 		const rows = [...table.querySelectorAll("tr")];
 		const presets = [
 			{
@@ -243,6 +241,7 @@ var STORAGE_KEY = "ks-troop-calc-inputs";
 		rows.forEach((row) => {
 			const label = row.cells[0]?.textContent?.trim();
 			if (!label) return;
+			if (/^preset$/i.test(label)) return;
 			const preset = presets.find((p) => p.pattern.test(label));
 			if (!preset) return;
 			const { infR, cavR, arcR, squads } = preset;
@@ -260,13 +259,23 @@ var STORAGE_KEY = "ks-troop-calc-inputs";
 				const cell = row.cells[cellIdx];
 				if (!cell) return;
 				const gap = gaps[i];
-				if (gap === void 0 || gap === 0) return;
-				const span = document.createElement("span");
-				span.className = "ks-actual";
-				span.textContent = ` (${fmt(gap)})`;
-				cell.appendChild(span);
+				if (gap === void 0) return;
+				cell.textContent = fmt(gap);
 			});
 		});
+	}
+	function updateTrainingFocusExplainer(v) {
+		const h3 = [...document.querySelectorAll("h3")].find((el) => /training focus/i.test(el.textContent ?? ""));
+		if (!h3) return;
+		const card = h3.closest("[class*=\"bg-white\"], [class*=\"bg-gray-8\"], [class*=\"rounded-lg\"]");
+		if (!card) return;
+		const bear = v.bearSquads;
+		const vik = v.vikSquads;
+		const balancedSquads = Math.max(bear, vik);
+		const isExplainerText = (text) => /Targets are computed/i.test(text) && text.length < 500;
+		const el = [...card.querySelectorAll("p")].find((node) => isExplainerText(node.textContent ?? ""));
+		if (!el) return;
+		el.textContent = `Targets are computed as (mySquad × ratio × squads). Balanced uses ${balancedSquads} (highest of Bear or Viking). Bear uses ${bear}. Vikings uses ${vik}. Gaps are non-negative.`;
 	}
 	function run() {
 		injectStyles();
@@ -282,6 +291,7 @@ var STORAGE_KEY = "ks-troop-calc-inputs";
 			arc: 0
 		});
 		processTrainingTable(v);
+		updateTrainingFocusExplainer(v);
 	}
 	document.addEventListener("input", onUserInput, true);
 	document.addEventListener("change", onUserInput, true);
