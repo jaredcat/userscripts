@@ -14,6 +14,7 @@ This userscript adds price per unit information to product pages on PetSmart.com
 Currently supported sites:
 
 - PetSmart.com
+- Chewy.com (product pages: price per unit; category/browse pages: "Sort by unit price" in the sort dropdown)
 
 ## Development
 

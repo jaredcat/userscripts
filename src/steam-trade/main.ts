@@ -1,5 +1,5 @@
+/// <reference types="jquery" />
 import { GM } from '$';
-import jQuery from 'jquery';
 import {
   CardOrder,
   DoAfterTrade,
@@ -12,8 +12,8 @@ import {
 
 // Cast unsafeWindow to SteamWindow type when using Steam-specific properties
 declare const unsafeWindow: SteamWindow;
-// Steam uses jQuery, so we need to declare it for type checking
-declare const $J: typeof jQuery;
+// Steam uses jQuery, so we need to declare it for type checking (callable, not module)
+declare const $J: JQueryStatic;
 
 const CONFIG: SteamTradeConfig = {
   WEBSITE_HOSTS: ['www.steamtradematcher.com'],
