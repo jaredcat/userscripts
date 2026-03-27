@@ -6,6 +6,8 @@ Userscript for [Kingshot Guide](https://www.kingshotguide.org/calculator/troops-
 
 [Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/kingshot-troop-calculator.user.js)
 
+*No userscript manager yet? Install [Violentmonkey](https://violentmonkey.github.io/get-it/) first, then use the link above.*
+
 ![Preview of the troop calculator with formation percentages and annotations](preview.png)
 
 ## Features

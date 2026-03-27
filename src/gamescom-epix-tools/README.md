@@ -6,6 +6,8 @@ Automatically adds all the Epix friends links from the gamescom discord server.
 
 [Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/gamescom-epix-tools.user.js)
 
+*No userscript manager yet? Install [Violentmonkey](https://violentmonkey.github.io/get-it/) first, then use the link above.*
+
 ## Usage
 
 To use:
