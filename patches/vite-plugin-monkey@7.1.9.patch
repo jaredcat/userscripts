@@ -1,0 +1,13 @@
+diff --git a/dist/node/index.mjs b/dist/node/index.mjs
+index f1bbc09f87d86ccea535502f860abc29f04e567a..90e79242e64419f3810da8dca0b5abdec74ae290 100644
+--- a/dist/node/index.mjs
++++ b/dist/node/index.mjs
+@@ -1185,7 +1185,7 @@ var configFactory = (getOption) => {
+             [option.clientAlias]: "vite-plugin-monkey/dist/client"
+           }
+         },
+-        esbuild: {
++        oxc: {
+           supported: {
+             "top-level-await": true
+           }

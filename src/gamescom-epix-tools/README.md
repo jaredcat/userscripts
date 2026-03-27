@@ -1,11 +1,20 @@
-Automatically adds all the Epix friends links from the gamescom discord server
+# Gamescom Epix Tools
+
+Automatically adds all the Epix friends links from the gamescom discord server.
+
+## Install
+
+[Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/gamescom-epix-tools.user.js)
+
+## Usage
 
 To use:
-0. Install the script
 
-1. Join the gamescom discord server: <https://discord.gg/gamescom>
-2. Go to [`epix-friendlinks`](https://discord.com/channels/574865170694799400/1259933715409145966) channel
-3. Click the run button at the top of the channel (Refresh the page if the button isn't there)
+1. Install the script (link above)
+
+2. Join the gamescom discord server: <https://discord.gg/gamescom>
+3. Go to [`epix-friendlinks`](https://discord.com/channels/574865170694799400/1259933715409145966) channel
+4. Click the run button at the top of the channel (Refresh the page if the button isn't there)
 
 **If the button still doesn't show up in Discord, try opening dev tools first, refresh, and let it run with it open**
 

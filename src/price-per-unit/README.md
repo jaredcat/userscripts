@@ -2,6 +2,10 @@
 
 This userscript adds price per unit information to product pages on PetSmart.com and enables sorting products by unit price. This helps shoppers make more informed decisions by easily comparing prices across different package sizes.
 
+## Install
+
+[Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/price-per-unit.user.js)
+
 ## Features
 
 - Adds price per unit calculations to product pages

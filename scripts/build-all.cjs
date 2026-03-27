@@ -13,3 +13,5 @@ scripts.forEach((script) => {
   console.log(`Building ${script}...`);
   execSync(`vite build --mode ${script}`, { stdio: 'inherit' });
 });
+
+require('./update-readme-scripts.cjs');
