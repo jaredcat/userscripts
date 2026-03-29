@@ -71,6 +71,33 @@ function setReactValue(pageEl: HTMLInputElement, value: string | number): void {
   if (onChange) onChange({ target: { value: String(value) } });
 }
 
+/**
+ * Strip thousands separators (commas, spaces) and keep digits + at most one decimal point
+ * so pastes like "300,000", "300 000", or "12.5" work with React-controlled inputs.
+ */
+function sanitizePastedNumericField(text: string): string {
+  const compact = text.replace(/[\s,]/g, '');
+  let out = '';
+  let hasDot = false;
+  for (const ch of compact) {
+    if (ch >= '0' && ch <= '9') out += ch;
+    else if (ch === '.' && !hasDot) {
+      hasDot = true;
+      out += ch;
+    }
+  }
+  return out;
+}
+
+function isNumericLikeInput(el: HTMLInputElement): boolean {
+  const t = (el.type || 'text').toLowerCase();
+  if (t === 'checkbox' || t === 'radio' || t === 'file' || t === 'button')
+    return false;
+  if (t === 'hidden' || t === 'submit' || t === 'reset' || t === 'image')
+    return false;
+  return true;
+}
+
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
 function load(): string[] {
@@ -122,6 +149,24 @@ function onUserInput(e: Event): void {
   saveTimer = setTimeout(saveAll, 300);
 }
 
+function onPasteCapture(e: ClipboardEvent): void {
+  const target = e.target;
+  if (!target || !(target instanceof HTMLInputElement)) return;
+  if (!isNumericLikeInput(target)) return;
+
+  const raw = e.clipboardData?.getData('text/plain');
+  if (raw === undefined || raw === '') return;
+
+  const sanitized = sanitizePastedNumericField(raw);
+  if (sanitized === raw) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+  setReactValue(target, sanitized);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveAll, 300);
+}
+
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 function injectStyles(): void {
@@ -155,41 +200,117 @@ function fmt(n: number): string {
   return n.toLocaleString();
 }
 
-// Convert per-squad counts to whole-number game %s.
-function toGamePcts(counts: number[], mySquad: number): number[] {
-  if (mySquad === 0) return counts.map(() => 0);
-  const n = counts.length;
-  const result: number[] = [];
+type TroopType = 'inf' | 'cav' | 'arc';
 
-  let remaining = counts.reduce((a, b) => a + b, 0);
+function roundTripletTo100(
+  exacts: [number, number, number],
+  opts?: {
+    preferAdd?: TroopType;
+    preferSub?: TroopType;
+    bias?: [number, number, number];
+  },
+): [number, number, number] {
+  const floors: [number, number, number] = [
+    Math.floor(exacts[0]),
+    Math.floor(exacts[1]),
+    Math.floor(exacts[2]),
+  ];
+  const remainders: [number, number, number] = [
+    exacts[0] - floors[0],
+    exacts[1] - floors[1],
+    exacts[2] - floors[2],
+  ];
+  const bias = opts?.bias ?? [0, 0, 0];
 
-  for (let i = 0; i < n; i++) {
-    const squadsLeft = n - i;
-    const count = counts[i] ?? 0;
-    const exact = (count / mySquad) * 100;
+  const typeToIdx = (t: TroopType): 0 | 1 | 2 =>
+    t === 'inf' ? 0 : t === 'cav' ? 1 : 2;
+  const preferAddIdx = opts?.preferAdd ? typeToIdx(opts.preferAdd) : undefined;
+  const preferSubIdx = opts?.preferSub ? typeToIdx(opts.preferSub) : undefined;
 
-    if (i < n - 1) {
-      const floorPct = Math.floor(exact);
-      const ceilPct = floorPct + 1;
-      const ceilTroops = Math.round((mySquad * ceilPct) / 100);
-      const floorTroops = Math.round((mySquad * floorPct) / 100);
+  const sumFloors = floors[0] + floors[1] + floors[2];
+  let delta = 100 - sumFloors;
 
-      const remainingAfterThis = remaining - ceilTroops;
-      const minForRest = (squadsLeft - 1) * floorTroops;
-
-      if (remainingAfterThis >= minForRest) {
-        result.push(ceilPct);
-        remaining -= ceilTroops;
-      } else {
-        result.push(floorPct);
-        remaining -= floorTroops;
-      }
-    } else {
-      result.push(Math.floor((remaining / mySquad) * 100));
-    }
+  // Add 1% to the largest remainders until we hit 100.
+  while (delta > 0) {
+    const idx = ([0, 1, 2] as const)
+      .filter((i) => floors[i] < 100)
+      .sort((a, b) => {
+        const ra = remainders[a] + bias[a];
+        const rb = remainders[b] + bias[b];
+        if (rb !== ra) return rb - ra;
+        if (preferAddIdx !== undefined) {
+          if (a === preferAddIdx && b !== preferAddIdx) return -1;
+          if (b === preferAddIdx && a !== preferAddIdx) return 1;
+        }
+        return a - b;
+      })[0];
+    if (idx === undefined) break;
+    floors[idx] += 1;
+    delta -= 1;
   }
 
-  return result;
+  // Subtract 1% from the smallest remainders until we hit 100.
+  while (delta < 0) {
+    const idx = ([0, 1, 2] as const)
+      .filter((i) => floors[i] > 0)
+      .sort((a, b) => {
+        const ra = remainders[a] + bias[a];
+        const rb = remainders[b] + bias[b];
+        if (ra !== rb) return ra - rb;
+        if (preferSubIdx !== undefined) {
+          if (a === preferSubIdx && b !== preferSubIdx) return -1;
+          if (b === preferSubIdx && a !== preferSubIdx) return 1;
+        }
+        return a - b;
+      })[0];
+    if (idx === undefined) break;
+    floors[idx] -= 1;
+    delta += 1;
+  }
+
+  return floors;
+}
+
+function toColumnGamePcts(
+  infCount: number,
+  cavCount: number,
+  arcCount: number,
+  mySquad: number,
+  opts?: { preferType?: TroopType; earlyBias?: number },
+): { inf: number; cav: number; arc: number } {
+  if (mySquad <= 0) return { inf: 0, cav: 0, arc: 0 };
+  const infExact = (infCount / mySquad) * 100;
+  const cavExact = (cavCount / mySquad) * 100;
+  const arcExact = (arcCount / mySquad) * 100;
+
+  // If we have an ambiguous rounding choice, bias it toward the preferred type,
+  // and slightly front-load that preference into earlier squads.
+  const preferred = opts?.preferType;
+  const earlyBias = opts?.earlyBias ?? 0;
+  const bias: [number, number, number] =
+    preferred === 'inf'
+      ? [earlyBias, 0, 0]
+      : preferred === 'cav'
+        ? [0, earlyBias, 0]
+        : preferred === 'arc'
+          ? [0, 0, earlyBias]
+          : [0, 0, 0];
+
+  const roundingOpts: {
+    preferAdd?: TroopType;
+    preferSub?: TroopType;
+    bias?: [number, number, number];
+  } = { bias };
+  if (preferred) {
+    roundingOpts.preferAdd = preferred;
+    roundingOpts.preferSub = preferred;
+  }
+
+  const [inf, cav, arc] = roundTripletTo100(
+    [infExact, cavExact, arcExact],
+    roundingOpts,
+  );
+  return { inf, cav, arc };
 }
 
 function getInputValues(): InputValues {
@@ -236,6 +357,7 @@ function processTable(
   table: HTMLTableElement,
   mySquad: number,
   targets: PctTargets,
+  opts?: { preferType?: TroopType },
 ): void {
   table.querySelectorAll('tr.ks-pct-row').forEach((r) => r.remove());
   if (mySquad === 0) return;
@@ -271,17 +393,24 @@ function processTable(
     arcCounts.push(parseCount(arcRow.cells[col]?.textContent));
   }
 
-  const infPcts = toGamePcts(infCounts, mySquad);
-  const cavPcts = toGamePcts(cavCounts, mySquad);
-  const arcPcts = toGamePcts(arcCounts, mySquad);
-
   labelCell.textContent = 'Set in-game %';
   pctRow.appendChild(labelCell);
 
   for (let i = 0; i < squadEnd; i++) {
-    pctRow.appendChild(
-      buildPctCell(infPcts[i] ?? 0, cavPcts[i] ?? 0, arcPcts[i] ?? 0, targets),
+    // Earlier squads get a slightly stronger tie-break bias.
+    const earlyBias = (squadEnd - i) * 1e-3;
+    const columnOpts: { preferType?: TroopType; earlyBias?: number } = {
+      earlyBias,
+    };
+    if (opts?.preferType) columnOpts.preferType = opts.preferType;
+    const pcts = toColumnGamePcts(
+      infCounts[i] ?? 0,
+      cavCounts[i] ?? 0,
+      arcCounts[i] ?? 0,
+      mySquad,
+      columnOpts,
     );
+    pctRow.appendChild(buildPctCell(pcts.inf, pcts.cav, pcts.arc, targets));
   }
 
   pctRow.appendChild(document.createElement('td'));
@@ -292,6 +421,7 @@ function findAndProcessTable(
   pattern: RegExp,
   mySquad: number,
   targets: PctTargets,
+  opts?: { preferType?: TroopType },
 ): void {
   const h3 = [...document.querySelectorAll('h3')].find((el) =>
     pattern.test(el.textContent?.trim() ?? ''),
@@ -303,7 +433,7 @@ function findAndProcessTable(
   if (card) {
     const table = card.querySelector('table');
     if (table) {
-      processTable(table, mySquad, targets);
+      processTable(table, mySquad, targets, opts);
       return;
     }
   }
@@ -312,7 +442,7 @@ function findAndProcessTable(
       /infantry/i.test(t.textContent ?? '') &&
       /archers/i.test(t.textContent ?? '')
     ) {
-      processTable(t, mySquad, targets);
+      processTable(t, mySquad, targets, opts);
     }
   });
 }
@@ -438,17 +568,27 @@ function run(): void {
   injectStyles();
   const v = getInputValues();
 
-  findAndProcessTable(/^bear split$/i, v.mySquad, {
-    inf: v.bearInf,
-    cav: v.bearCav,
-    arc: v.bearArc,
-  });
+  findAndProcessTable(
+    /^bear split$/i,
+    v.mySquad,
+    {
+      inf: v.bearInf,
+      cav: v.bearCav,
+      arc: v.bearArc,
+    },
+    { preferType: 'arc' },
+  );
 
-  findAndProcessTable(/^vikings split$/i, v.mySquad, {
-    inf: v.vikingInf,
-    cav: v.vikingCav,
-    arc: 0,
-  });
+  findAndProcessTable(
+    /^vikings split$/i,
+    v.mySquad,
+    {
+      inf: v.vikingInf,
+      cav: v.vikingCav,
+      arc: 0,
+    },
+    { preferType: 'inf' },
+  );
 
   processTrainingTable(v);
   updateTrainingFocusExplainer(v);
@@ -458,6 +598,7 @@ function run(): void {
 
 document.addEventListener('input', onUserInput, true);
 document.addEventListener('change', onUserInput, true);
+document.addEventListener('paste', onPasteCapture, true);
 
 function waitForReactThenRestore(maxMs = 10000): void {
   const start = Date.now();
