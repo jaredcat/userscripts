@@ -12,8 +12,9 @@
 // ==/UserScript==
 
 (function() {
-var STORAGE_KEY = "ks-troop-calc-inputs";
-var STORAGE_KEY_FIELDS = "ks-troop-calc-fields-v3";
+	"use strict";
+	var STORAGE_KEY = "ks-troop-calc-inputs";
+	var STORAGE_KEY_FIELDS = "ks-troop-calc-fields-v3";
 	var STYLE_ID = "ks-formation-pct-style";
 	var pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 	var IDX = {
@@ -29,7 +30,7 @@ var STORAGE_KEY_FIELDS = "ks-troop-calc-fields-v3";
 		vikingCav: 9,
 		vikSquads: 10
 	};
-var FIELD_ORDER = [
+	var FIELD_ORDER = [
 		"mySquad",
 		"totalInf",
 		"totalCav",
@@ -45,12 +46,12 @@ var FIELD_ORDER = [
 	function getPageInputs() {
 		return [...pageWindow.document.querySelectorAll("input")];
 	}
-function findSectionRootByHeading(rx) {
+	function findSectionRootByHeading(rx) {
 		const h = [...pageWindow.document.querySelectorAll("h2, h3")].find((el) => rx.test(el.textContent?.trim() ?? ""));
 		if (!h) return null;
 		return h.closest("[class*=\"rounded-lg\"], [class*=\"rounded\"], section, article") ?? h.parentElement;
 	}
-function getCalculatorFieldMap() {
+	function getCalculatorFieldMap() {
 		const out = {};
 		const inputsRoot = findSectionRootByHeading(/^inputs?$/i) ?? findSectionRootByHeading(/troop inputs/i);
 		if (inputsRoot) {
@@ -94,7 +95,7 @@ function getCalculatorFieldMap() {
 		}
 		return out;
 	}
-function getCalculatorOrderedInputs() {
+	function getCalculatorOrderedInputs() {
 		const m = getCalculatorFieldMap();
 		const resolved = FIELD_ORDER.map((k) => m[k]).filter(Boolean);
 		if (resolved.length === 11) return resolved;
@@ -106,7 +107,7 @@ function getCalculatorOrderedInputs() {
 		const onChange = pageEl[key]?.onChange;
 		if (onChange) onChange({ target: { value: String(value) } });
 	}
-function sanitizePastedNumericField(text) {
+	function sanitizePastedNumericField(text) {
 		const compact = text.replace(/[\s,]/g, "");
 		let out = "";
 		let hasDot = false;
@@ -295,7 +296,7 @@ function sanitizePastedNumericField(text) {
 			arc: pool.arc - chunk.arc
 		};
 	}
-function allocateMarchTowardPreset(rem, mySquad, infPct, cavPct, arcPct) {
+	function allocateMarchTowardPreset(rem, mySquad, infPct, cavPct, arcPct) {
 		if (mySquad <= 0) return {
 			inf: 0,
 			cav: 0,
@@ -351,7 +352,7 @@ function allocateMarchTowardPreset(rem, mySquad, infPct, cavPct, arcPct) {
 			arc: a
 		};
 	}
-function existsCompositionWithSum(T, capI, capC, capA) {
+	function existsCompositionWithSum(T, capI, capC, capA) {
 		const aMax = Math.min(capA, T);
 		for (let a = 0; a <= aMax; a++) {
 			const rem = T - a;
@@ -359,7 +360,7 @@ function existsCompositionWithSum(T, capI, capC, capA) {
 		}
 		return false;
 	}
-function maxFeasibleMarchTotal(soloCap, capI, capC, capA) {
+	function maxFeasibleMarchTotal(soloCap, capI, capC, capA) {
 		const upper = Math.min(soloCap, capI + capC + capA);
 		let lo = 0;
 		let hi = upper;
@@ -370,7 +371,7 @@ function maxFeasibleMarchTotal(soloCap, capI, capC, capA) {
 		}
 		return lo;
 	}
-function bestCompositionForMarchTotal(T, capI, capC, capA, ti, tc, ta) {
+	function bestCompositionForMarchTotal(T, capI, capC, capA, ti, tc, ta) {
 		if (T <= 0) return {
 			inf: 0,
 			cav: 0,
@@ -420,7 +421,7 @@ function bestCompositionForMarchTotal(T, capI, capC, capA, ti, tc, ta) {
 		}
 		return best;
 	}
-function findBestUniformMarch(totalInf, totalCav, totalArc, numMarches, mySquad, idealInf, idealCav, idealArc) {
+	function findBestUniformMarch(totalInf, totalCav, totalArc, numMarches, mySquad, idealInf, idealCav, idealArc) {
 		const N = numMarches;
 		const S = mySquad;
 		if (N <= 0 || S <= 0) return {
@@ -622,7 +623,7 @@ function findBestUniformMarch(totalInf, totalCav, totalArc, numMarches, mySquad,
 			if ((row.cells[0]?.textContent?.trim().toLowerCase() ?? "").includes(includes)) return row;
 		}
 	}
-function ensureBearRallyColumn(table) {
+	function ensureBearRallyColumn(table) {
 		const headerRow = table.querySelector("tr");
 		if (!headerRow || headerRow.cells.length < 3) return;
 		if (headerRow.cells[1]?.textContent?.trim() === "Rally") return;
@@ -654,7 +655,7 @@ function ensureBearRallyColumn(table) {
 		if (supply) fillTroopDataColumn(supply, supplyVals);
 		if (unused) fillTroopDataColumn(unused, unusedVals);
 	}
-function appendBearSplitPctRow(table, mySquad, rally, squadMarch, squadMarchTotal, numSquads, presetGoal) {
+	function appendBearSplitPctRow(table, mySquad, rally, squadMarch, squadMarchTotal, numSquads, presetGoal) {
 		if (mySquad <= 0) return;
 		const arcRow = getTroopRow(table, "archers");
 		if (!arcRow) return;
@@ -673,7 +674,7 @@ function appendBearSplitPctRow(table, mySquad, rally, squadMarch, squadMarchTota
 		pctRow.appendChild(document.createElement("td"));
 		arcRow.insertAdjacentElement("afterend", pctRow);
 	}
-function appendUniformFormationPctRow(table, mySquad, columnCount, march, marchTotal) {
+	function appendUniformFormationPctRow(table, mySquad, columnCount, march, marchTotal) {
 		if (mySquad <= 0 || columnCount <= 0) return;
 		const arcRow = getTroopRow(table, "archers");
 		if (!arcRow) return;

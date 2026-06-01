@@ -14,7 +14,8 @@
 // ==/UserScript==
 
 (function() {
-var STORAGE_KEY = "twitchDropsFilterState";
+	"use strict";
+	var STORAGE_KEY = "twitchDropsFilterState";
 	async function saveFilterState() {
 		const state = {
 			masterEnabled: document.getElementById("drops-master-filter")?.checked ?? true,
@@ -310,8 +311,8 @@ var STORAGE_KEY = "twitchDropsFilterState";
 					let hour24 = parseInt(hour, 10);
 					if (ampm.toUpperCase() === "PM" && hour24 !== 12) hour24 += 12;
 					else if (ampm.toUpperCase() === "AM" && hour24 === 12) hour24 = 0;
-					const currentYear = ( new Date()).getFullYear();
-					const currentMonth = ( new Date()).getMonth();
+					const currentYear = new Date().getFullYear();
+					const currentMonth = new Date().getMonth();
 					let date = new Date(Date.UTC(currentYear, month, parseInt(day, 10), hour24, parseInt(minute, 10)));
 					const offset = {
 						PST: 8,

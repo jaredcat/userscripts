@@ -11,7 +11,8 @@
 // ==/UserScript==
 
 (function() {
-var episodeData = [{
+	"use strict";
+	var episodeData = [{
 		number: "4",
 		name: "American Stepdad",
 		overview: "When Stan invites his recently widowed mother to move in, she and Roger fall in love and wed; Steve and his friends find a lost movie script.",

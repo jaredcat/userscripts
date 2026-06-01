@@ -12,7 +12,8 @@
 // ==/UserScript==
 
 (function() {
-var MAX_ATTEMPTS = 30;
+	"use strict";
+	var MAX_ATTEMPTS = 30;
 	var attempts = 0;
 	var waitForInit = setInterval(() => {
 		attempts++;

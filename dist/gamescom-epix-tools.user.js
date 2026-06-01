@@ -11,7 +11,8 @@
 // ==/UserScript==
 
 (function() {
-var GamescomEpixTools = class {
+	"use strict";
+	var GamescomEpixTools = class {
 		toolbar = null;
 		constructor() {
 			this.init();

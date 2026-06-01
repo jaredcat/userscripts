@@ -13,7 +13,8 @@
 // ==/UserScript==
 
 (async function() {
-var _GM = typeof GM != "undefined" ? GM : void 0;
+	"use strict";
+	var _GM = (() => typeof GM != "undefined" ? GM : void 0)();
 	var defaultSettings = {
 		hideClosedGiveaways: true,
 		hideTierRestricted: true,
@@ -346,7 +347,7 @@ var _GM = typeof GM != "undefined" ? GM : void 0;
 	var currentPath = window.location.pathname;
 	await(createSettingsMenu());
 	addSettingsButton();
-	if (await(getSettings()).autoSyncTier && currentPath === "/control-center") await(checkAndStoreTier());
+	if ((await(getSettings())).autoSyncTier && currentPath === "/control-center") await(checkAndStoreTier());
 	else if (currentPath === "/community-giveaways") new MutationObserver(() => {
 		filterGiveaways();
 	}).observe(document.body, {

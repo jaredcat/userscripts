@@ -1,2 +1,2 @@
-patchedDependencies:
-  vite-plugin-monkey@7.1.9: patches/vite-plugin-monkey@7.1.9.patch
+minimumReleaseAgeExclude:
+  - vite@8.0.16

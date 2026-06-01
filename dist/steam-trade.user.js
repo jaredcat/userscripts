@@ -19,7 +19,8 @@
 // ==/UserScript==
 
 (function() {
-var _GM = typeof GM != "undefined" ? GM : void 0;
+	"use strict";
+	var _GM = (() => typeof GM != "undefined" ? GM : void 0)();
 	var CONFIG = {
 		WEBSITE_HOSTS: ["www.steamtradematcher.com"],
 		STEAM: {
@@ -568,11 +569,11 @@ var _GM = typeof GM != "undefined" ? GM : void 0;
 				let retryCount = 0;
 				const checkInventories = () => {
 					if (Date.now() - startTime > CONFIG.TRADE.INVENTORY_CHECK_TIMEOUT) {
-						reject( new Error(`Inventory loading timeout after ${CONFIG.TRADE.INVENTORY_CHECK_TIMEOUT}ms`));
+						reject(new Error(`Inventory loading timeout after ${CONFIG.TRADE.INVENTORY_CHECK_TIMEOUT}ms`));
 						return;
 					}
 					if (retryCount >= CONFIG.TRADE.INVENTORY_CHECK_MAX_RETRIES) {
-						reject( new Error(`Inventory loading failed after ${retryCount} retries`));
+						reject(new Error(`Inventory loading failed after ${retryCount} retries`));
 						return;
 					}
 					retryCount++;

@@ -13,7 +13,8 @@
 // ==/UserScript==
 
 (function() {
-function parseSize(sizeText) {
+	"use strict";
+	function parseSize(sizeText) {
 		const match = sizeText.match(/([\d.]+)[\s-]*(lb\.?s?|oz\.?|count|ct\.?|pack|pk\.?|each|ea\.?|g|kg|ml|L)\b/i);
 		if (!match?.[1] || !match?.[2]) return null;
 		return {
@@ -76,14 +77,14 @@ function parseSize(sizeText) {
 		if (DEBUG) console.log("[price-per-unit Chewy]", msg, ...args);
 	};
 	var ChewyPricePerUnit = class ChewyPricePerUnit extends BaseSiteHandler {
-plpProducts = [];
+		plpProducts = [];
 		static LISTING_PAGE_INDICATOR = [
 			"[data-testid=\"product-listing\"]",
 			".productlisting_container",
 			"[class*=\"ProductListing\"]",
 			"main [class*=\"browse\"]"
 		].join(", ");
-static CARD_LINK_SELECTOR = "a[href*=\"/dp/\"]";
+		static CARD_LINK_SELECTOR = "a[href*=\"/dp/\"]";
 		static GRID_CONTAINER_SELECTOR = "[class*=\"ProductListingGrid_gridContainer\"]";
 		static PRODUCT_CARD_SELECTOR = ".kib-product-card[data-category]:not(.js-tracked-ad-product)";
 		static DESKTOP_SORT_SELECTOR = "[class*=\"ProductListingGrid_resultsSort\"]";
@@ -101,7 +102,7 @@ static CARD_LINK_SELECTOR = "a[href*=\"/dp/\"]";
 			".product-size",
 			"span[class*=\"size\"]"
 		].join(", ");
-get targetWindow() {
+		get targetWindow() {
 			return typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 		}
 		async initialize() {
@@ -367,7 +368,7 @@ get targetWindow() {
 					subtree: true
 				});
 			}
-parseSizeFromTitle(title) {
+			parseSizeFromTitle(title) {
 				const regex = /([\d.]+)[\s-]*(lb\.?s?|oz\.?|count|ct\.?|pack|pk\.?|each|ea\.?|g|kg|ml|L)\b/gi;
 				let last = null;
 				let match;
