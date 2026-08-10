@@ -79,19 +79,76 @@ function extractTier(text: string): number | undefined {
   return undefined;
 }
 
-// Function to check and store user's tier on control center page
-async function checkAndStoreTier(): Promise<void> {
+function readPageUserTier(): number | undefined {
+  const arpTier = (globalThis as typeof globalThis & { arp_tier?: unknown })
+    .arp_tier;
+  if (typeof arpTier === 'number' && !Number.isNaN(arpTier)) {
+    return arpTier;
+  }
+
   const tierImg = document.querySelector<HTMLImageElement>(
     'img[src*="/images/content/tier-tags/"]',
   );
-  if (tierImg) {
-    const tierMatch = /tier-tags\/(\d+)\.png/.exec(tierImg.src);
-    if (tierMatch?.[1]) {
-      const userTier = Number(tierMatch[1]);
-      await saveSettings({ userTier });
-      console.log('Stored user tier:', userTier);
+  if (!tierImg) {
+    return undefined;
+  }
+
+  const tierMatch = /tier-tags\/(\d+)\.png/.exec(tierImg.src);
+  if (!tierMatch?.[1]) {
+    return undefined;
+  }
+
+  const userTier = Number(tierMatch[1]);
+  return Number.isNaN(userTier) ? undefined : userTier;
+}
+
+// Function to check and store user's tier (control center badge or page global)
+async function checkAndStoreTier(): Promise<void> {
+  const userTier = readPageUserTier();
+  if (userTier === undefined) {
+    return;
+  }
+
+  await saveSettings({ userTier });
+  console.log('Stored user tier:', userTier);
+}
+
+function hideMarketplaceItem(item: HTMLElement): void {
+  // Prefer the product-block wrapper so CSS grid layouts reflow cleanly
+  const wrapper = item.closest<HTMLElement>(
+    '[class*="marketplace-product-block-"]',
+  );
+  (wrapper ?? item).style.display = 'none';
+}
+
+function shouldHideMarketplaceItem(
+  item: HTMLElement,
+  settings: FilterSettings,
+  userTier: number,
+): boolean {
+  const text = item.textContent || '';
+  const normalizedText = text.toLowerCase();
+
+  if (
+    settings.hideOutOfStock &&
+    (normalizedText.includes('out of stock') ||
+      item.dataset.productInStock === 'false')
+  ) {
+    return true;
+  }
+
+  if (settings.hideClaimed && normalizedText.includes('claimed')) {
+    return true;
+  }
+
+  if (settings.hideTierRestricted) {
+    const tierNumber = extractTier(text);
+    if (tierNumber !== undefined && tierNumber > userTier) {
+      return true;
     }
   }
+
+  return false;
 }
 
 // Function to filter community giveaways
@@ -99,7 +156,7 @@ async function filterGiveaways(): Promise<void> {
   const settings = await getSettings();
   const userTier = settings.userTier ?? DEFAULT_USER_TIER;
   const giveaways = document.querySelectorAll<HTMLElement>(
-    'div.mb-3.community-giveaways__listing__row',
+    '.community-giveaways__listing__row',
   );
 
   giveaways.forEach((giveaway) => {
@@ -111,56 +168,32 @@ async function filterGiveaways(): Promise<void> {
 
     if (settings.hideTierRestricted) {
       const tierNumber = extractTier(text);
-      if (tierNumber && tierNumber > userTier) {
+      if (tierNumber !== undefined && tierNumber > userTier) {
         giveaway.style.display = 'none';
       }
     }
   });
 }
 
-// Function to filter marketplace items
+// Function to filter marketplace / game vault items
 async function filterMarketplace(): Promise<void> {
   const settings = await getSettings();
   const userTier = settings.userTier ?? DEFAULT_USER_TIER;
   const items = document.querySelectorAll<HTMLElement>(
-    '.pointer.marketplace-game-small, .pointer.marketplace-game-large, .product-tile, .featured-tile',
+    [
+      // Current marketplace rewards grid
+      '.product-card.marketplace-product',
+      // Game Vault cards
+      '.pointer.marketplace-game-small',
+      '.pointer.marketplace-game-large',
+    ].join(', '),
   );
 
   items.forEach((item) => {
-    const text = item.textContent || '';
-    if (
-      settings.hideOutOfStock &&
-      text.toLowerCase().includes('out of stock')
-    ) {
-      item.style.display = 'none';
-      return;
-    }
-
-    if (settings.hideClaimed && text.toLowerCase().includes('claimed')) {
-      item.style.display = 'none';
-      return;
-    }
-
-    if (settings.hideTierRestricted) {
-      const tierNumber = extractTier(text);
-      if (tierNumber && tierNumber > userTier) {
-        item.style.display = 'none';
-      }
+    if (shouldHideMarketplaceItem(item, settings, userTier)) {
+      hideMarketplaceItem(item);
     }
   });
-
-  if (
-    [
-      ...document.querySelectorAll<HTMLElement>('.row.mt-3 .featured-tile'),
-    ].every((tile) => tile.style.display === 'none')
-  ) {
-    const flashDealsSection = document.querySelector<HTMLElement>(
-      'div[style*="border-style: solid"][class*="row mt-3"]',
-    );
-    if (flashDealsSection) {
-      flashDealsSection.style.display = 'none';
-    }
-  }
 }
 
 function buildSettingsMenuStyles(): string {
@@ -508,9 +541,11 @@ await createSettingsMenu();
 addSettingsButton();
 
 const settings = await getSettings();
-if (currentPath === '/control-center' && settings.autoSyncTier) {
+if (settings.autoSyncTier) {
   await checkAndStoreTier();
-} else if (currentPath === '/community-giveaways') {
+}
+
+if (currentPath === '/community-giveaways') {
   // Add mutation observer for dynamic content loading
   const observer = new MutationObserver(() => {
     void filterGiveaways();

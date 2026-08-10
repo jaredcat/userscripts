@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Alienware Arena Filters
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.1.6
+// @version      1.2.0
 // @author       jaredcat
 // @description  Enhances Alienware Arena website with additional filtering options
 // @license      AGPL-3.0-or-later
@@ -55,21 +55,41 @@
 		const match = /Tier\s*(\d+)/i.exec(text);
 		if (match?.[1]) return Number(match[1]);
 	}
-	async function checkAndStoreTier() {
+	function readPageUserTier() {
+		const arpTier = globalThis.arp_tier;
+		if (typeof arpTier === "number" && !Number.isNaN(arpTier)) return arpTier;
 		const tierImg = document.querySelector("img[src*=\"/images/content/tier-tags/\"]");
-		if (tierImg) {
-			const tierMatch = /tier-tags\/(\d+)\.png/.exec(tierImg.src);
-			if (tierMatch?.[1]) {
-				const userTier = Number(tierMatch[1]);
-				await saveSettings({ userTier });
-				console.log("Stored user tier:", userTier);
-			}
+		if (!tierImg) return;
+		const tierMatch = /tier-tags\/(\d+)\.png/.exec(tierImg.src);
+		if (!tierMatch?.[1]) return;
+		const userTier = Number(tierMatch[1]);
+		return Number.isNaN(userTier) ? void 0 : userTier;
+	}
+	async function checkAndStoreTier() {
+		const userTier = readPageUserTier();
+		if (userTier === void 0) return;
+		await saveSettings({ userTier });
+		console.log("Stored user tier:", userTier);
+	}
+	function hideMarketplaceItem(item) {
+		const wrapper = item.closest("[class*=\"marketplace-product-block-\"]");
+		(wrapper ?? item).style.display = "none";
+	}
+	function shouldHideMarketplaceItem(item, settings, userTier) {
+		const text = item.textContent || "";
+		const normalizedText = text.toLowerCase();
+		if (settings.hideOutOfStock && (normalizedText.includes("out of stock") || item.dataset.productInStock === "false")) return true;
+		if (settings.hideClaimed && normalizedText.includes("claimed")) return true;
+		if (settings.hideTierRestricted) {
+			const tierNumber = extractTier(text);
+			if (tierNumber !== void 0 && tierNumber > userTier) return true;
 		}
+		return false;
 	}
 	async function filterGiveaways() {
 		const settings = await getSettings();
 		const userTier = settings.userTier ?? DEFAULT_USER_TIER;
-		document.querySelectorAll("div.mb-3.community-giveaways__listing__row").forEach((giveaway) => {
+		document.querySelectorAll(".community-giveaways__listing__row").forEach((giveaway) => {
 			const text = giveaway.textContent || "";
 			if (settings.hideClosedGiveaways && text.includes("Closed")) {
 				giveaway.style.display = "none";
@@ -77,32 +97,20 @@
 			}
 			if (settings.hideTierRestricted) {
 				const tierNumber = extractTier(text);
-				if (tierNumber && tierNumber > userTier) giveaway.style.display = "none";
+				if (tierNumber !== void 0 && tierNumber > userTier) giveaway.style.display = "none";
 			}
 		});
 	}
 	async function filterMarketplace() {
 		const settings = await getSettings();
 		const userTier = settings.userTier ?? DEFAULT_USER_TIER;
-		document.querySelectorAll(".pointer.marketplace-game-small, .pointer.marketplace-game-large, .product-tile, .featured-tile").forEach((item) => {
-			const text = item.textContent || "";
-			if (settings.hideOutOfStock && text.toLowerCase().includes("out of stock")) {
-				item.style.display = "none";
-				return;
-			}
-			if (settings.hideClaimed && text.toLowerCase().includes("claimed")) {
-				item.style.display = "none";
-				return;
-			}
-			if (settings.hideTierRestricted) {
-				const tierNumber = extractTier(text);
-				if (tierNumber && tierNumber > userTier) item.style.display = "none";
-			}
+		document.querySelectorAll([
+			".product-card.marketplace-product",
+			".pointer.marketplace-game-small",
+			".pointer.marketplace-game-large"
+		].join(", ")).forEach((item) => {
+			if (shouldHideMarketplaceItem(item, settings, userTier)) hideMarketplaceItem(item);
 		});
-		if ([...document.querySelectorAll(".row.mt-3 .featured-tile")].every((tile) => tile.style.display === "none")) {
-			const flashDealsSection = document.querySelector("div[style*=\"border-style: solid\"][class*=\"row mt-3\"]");
-			if (flashDealsSection) flashDealsSection.style.display = "none";
-		}
 	}
 	function buildSettingsMenuStyles() {
 		return `
@@ -374,9 +382,8 @@
 	var currentPath = location.pathname;
 	await(createSettingsMenu());
 	addSettingsButton();
-	var settings = await(getSettings());
-	if (currentPath === "/control-center" && settings.autoSyncTier) await(checkAndStoreTier());
-	else if (currentPath === "/community-giveaways") new MutationObserver(() => {
+	if ((await(getSettings())).autoSyncTier) await(checkAndStoreTier());
+	if (currentPath === "/community-giveaways") new MutationObserver(() => {
 		filterGiveaways();
 	}).observe(document.body, {
 		childList: true,
