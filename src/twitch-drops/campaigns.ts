@@ -6,18 +6,43 @@ interface FilterState {
 interface DropItem {
   element: HTMLElement;
   dateText: string;
-  endDate: Date | null;
+  endDate: Date | undefined;
   timestamp: number;
   originalIndex: number;
   title: string;
 }
 
+interface CampaignHeadings {
+  openHeading: HTMLElement;
+  closedHeading: HTMLElement | undefined;
+}
+
 const STORAGE_KEY = 'twitchDropsFilterState';
+const DATE_PARTS_MINIMUM = 2;
+const HOUR_12 = 12;
+const SAVE_DEBOUNCE_MS = 100;
+const MUTATION_PROCESS_DELAY_MS = 500;
+const INITIAL_PROCESS_DELAY_MS = 3000;
+const MONTH_INDEX: Record<string, number> = {
+  Jan: 0,
+  Feb: 1,
+  Mar: 2,
+  Apr: 3,
+  May: 4,
+  Jun: 5,
+  Jul: 6,
+  Aug: 7,
+  Sep: 8,
+  Oct: 9,
+  Nov: 10,
+  Dec: 11,
+};
+const END_DATE_PATTERN =
+  /([A-Za-z]{3}), ([A-Za-z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM)/;
 
 async function saveFilterState(): Promise<void> {
-  const masterCheckbox = document.getElementById(
-    'drops-master-filter',
-  ) as HTMLInputElement | null;
+  const masterCheckbox = document.querySelector('#drops-master-filter') as
+    HTMLInputElement | undefined;
   const state: FilterState = {
     masterEnabled: masterCheckbox?.checked ?? true,
     items: {},
@@ -26,7 +51,7 @@ async function saveFilterState(): Promise<void> {
   document.querySelectorAll('[id^="drop-filter-"]').forEach((checkbox) => {
     const dropItem = (checkbox as HTMLElement).closest('div');
     const titleElement = dropItem?.querySelector(
-      '.accordion-header [class*="CoreText"]',
+      ':scope .accordion-header [class*="CoreText"]',
     );
     if (titleElement) {
       const title = titleElement.textContent?.trim() ?? '';
@@ -37,74 +62,64 @@ async function saveFilterState(): Promise<void> {
   await GM.setValue(STORAGE_KEY, JSON.stringify(state));
 }
 
-async function loadFilterState(): Promise<FilterState | null> {
+async function loadFilterState(): Promise<FilterState | undefined> {
   try {
-    const saved = await GM.getValue(STORAGE_KEY, null);
+    const saved = await GM.getValue(STORAGE_KEY, undefined);
     if (saved) {
       return JSON.parse(saved as string) as FilterState;
     }
-  } catch (e) {
-    console.warn('[Drops Sorter] Error loading filter state:', e);
+  } catch (error) {
+    console.warn('[Drops Sorter] Error loading filter state:', error);
   }
-  return null;
+  return undefined;
 }
 
-function parseEndDate(dateString: string): Date | null {
+function to12HourClockHours(hourText: string, ampm: string): number {
+  let hours = Math.trunc(Number(hourText));
+  if (hours !== HOUR_12 && ampm === 'PM') hours += HOUR_12;
+  if (hours === HOUR_12 && ampm === 'AM') hours = 0;
+  return hours;
+}
+
+function parseEndDate(dateString: string): Date | undefined {
   const parts = dateString.split(' - ');
-  if (parts.length < 2) return null;
+  if (parts.length < DATE_PARTS_MINIMUM) return undefined;
 
-  const endDateStr = parts[1]?.trim();
-  if (!endDateStr) return null;
-  const match = endDateStr.match(
-    /([A-Za-z]{3}), ([A-Za-z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM)/,
-  );
-  if (!match) return null;
+  const endDateString = parts[1]?.trim();
+  if (!endDateString) return undefined;
 
-  const [, , month, day, hour, minute, ampm] = match;
+  const match = END_DATE_PATTERN.exec(endDateString);
+  if (!match) return undefined;
+
+  const month = match[2];
+  const day = match[3];
+  const hour = match[4];
+  const minute = match[5];
+  const ampm = match[6];
+  if (month === undefined || ampm === undefined) return undefined;
+
+  const monthNumber = MONTH_INDEX[month];
+  if (monthNumber === undefined) return undefined;
+
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
   const currentDay = currentDate.getDate();
-
-  const months: Record<string, number> = {
-    Jan: 0,
-    Feb: 1,
-    Mar: 2,
-    Apr: 3,
-    May: 4,
-    Jun: 5,
-    Jul: 6,
-    Aug: 7,
-    Sep: 8,
-    Oct: 9,
-    Nov: 10,
-    Dec: 11,
-  };
-
-  if (month === undefined) return null;
-  const monthNum = months[month];
-  if (monthNum === undefined) return null;
-
-  let year = currentYear;
-  if (monthNum < currentMonth) {
-    year = currentYear + 1;
-  }
-
-  let hours = parseInt(hour ?? '0', 10);
-  if (ampm === 'PM' && hours !== 12) hours += 12;
-  if (ampm === 'AM' && hours === 12) hours = 0;
+  const year = monthNumber < currentMonth ? currentYear + 1 : currentYear;
+  const dayOfMonth = Math.trunc(Number(day || String(currentDay)));
+  const minuteOfHour = Math.trunc(Number(minute ?? '0'));
 
   return new Date(
     year,
-    monthNum,
-    parseInt(day || currentDay.toString(), 10),
-    hours,
-    parseInt(minute ?? '0', 10),
+    monthNumber,
+    dayOfMonth,
+    to12HourClockHours(hour ?? '0', ampm),
+    minuteOfHour,
   );
 }
 
 function addStyles(): void {
-  if (document.getElementById('drops-sorter-styles')) return;
+  if (document.querySelector('#drops-sorter-styles')) return;
 
   const style = document.createElement('style');
   style.id = 'drops-sorter-styles';
@@ -136,231 +151,280 @@ function addStyles(): void {
                 display: none !important;
             }
         `;
-  document.head.appendChild(style);
+  document.head.append(style);
 }
 
-export function initializeCampaigns(): void {
-  let initialized = false;
+function collectDropItemElements(): HTMLElement[] {
+  const dropItemElements: HTMLElement[] = [];
 
-  async function processDrops(): Promise<boolean> {
-    if (initialized) return true;
+  document.querySelectorAll('div').forEach((div) => {
+    if (!div.querySelector(':scope .accordion-header')) return;
 
-    const savedState = await loadFilterState();
+    const dateElement = div.querySelector(':scope [class*="caYeGJ"]');
+    if (!dateElement) return;
 
-    const allDivs = document.querySelectorAll('div');
-    const dropItemElements: HTMLElement[] = [];
+    const accordionHeader = div.querySelector(':scope .accordion-header');
+    if (accordionHeader?.parentElement === div) {
+      dropItemElements.push(div as HTMLElement);
+    }
+  });
 
-    allDivs.forEach((div) => {
-      if (div.querySelector('.accordion-header')) {
-        const dateElement = div.querySelector('[class*="caYeGJ"]');
-        if (dateElement) {
-          const accordionHeader = div.querySelector('.accordion-header');
-          if (accordionHeader && accordionHeader.parentElement === div) {
-            dropItemElements.push(div as HTMLElement);
-          }
-        }
-      }
-    });
+  return dropItemElements;
+}
 
-    if (dropItemElements.length === 0) return false;
+function findCampaignHeadings(): CampaignHeadings | undefined {
+  let openHeading: HTMLElement | undefined;
+  let closedHeading: HTMLElement | undefined;
 
-    const allH4s = document.querySelectorAll('h4');
-    let openDropsHeading: HTMLElement | null = null;
-    let closedDropsHeading: HTMLElement | null = null;
+  document.querySelectorAll('h4').forEach((h4) => {
+    const text = h4.textContent?.trim();
+    if (text === 'Open Drop Campaigns') {
+      openHeading = h4 as HTMLElement;
+    } else if (text === 'Closed Drop Campaigns') {
+      closedHeading = h4 as HTMLElement;
+    }
+  });
 
-    allH4s.forEach((h4) => {
-      const text = h4.textContent?.trim();
-      if (text === 'Open Drop Campaigns') {
-        openDropsHeading = h4 as HTMLElement;
-      } else if (text === 'Closed Drop Campaigns') {
-        closedDropsHeading = h4 as HTMLElement;
-      }
-    });
+  if (!openHeading) return undefined;
+  return { openHeading, closedHeading };
+}
 
-    if (!openDropsHeading) return false;
+function isFollowing(reference: HTMLElement, item: HTMLElement): boolean {
+  const position = reference.compareDocumentPosition(item);
+  return (position & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+}
 
-    const openDropItems: HTMLElement[] = [];
-    const closedDropItems: HTMLElement[] = [];
-    // TypeScript narrows openDropsHeading to HTMLElement after null check
-    const openHeading: HTMLElement = openDropsHeading;
+function isPreceding(reference: HTMLElement, item: HTMLElement): boolean {
+  const position = reference.compareDocumentPosition(item);
+  return (position & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
+}
 
-    dropItemElements.forEach((item) => {
-      const position = openHeading.compareDocumentPosition(item);
-      const isAfterOpen = (position & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+function splitOpenAndClosedItems(
+  dropItemElements: HTMLElement[],
+  headings: CampaignHeadings,
+): { openDropItems: HTMLElement[]; closedDropItems: HTMLElement[] } {
+  const openDropItems: HTMLElement[] = [];
+  const closedDropItems: HTMLElement[] = [];
+  const { openHeading, closedHeading } = headings;
 
-      let isBeforeClosed = true;
-      let isAfterClosed = false;
-      if (closedDropsHeading) {
-        const closedPosition = closedDropsHeading.compareDocumentPosition(item);
-        isBeforeClosed =
-          (closedPosition & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
-        isAfterClosed =
-          (closedPosition & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-      }
+  for (const item of dropItemElements) {
+    const isAfterOpen = isFollowing(openHeading, item);
+    const isBeforeClosed = closedHeading
+      ? isPreceding(closedHeading, item)
+      : true;
+    const isAfterClosed = closedHeading
+      ? isFollowing(closedHeading, item)
+      : false;
 
-      if (isAfterOpen && isBeforeClosed) {
-        openDropItems.push(item);
-      } else if (isAfterClosed) {
-        closedDropItems.push(item);
-      }
-    });
+    if (isAfterOpen && isBeforeClosed) {
+      openDropItems.push(item);
+    } else if (isAfterClosed) {
+      closedDropItems.push(item);
+    }
+  }
 
-    if (openDropItems.length === 0) return false;
+  return { openDropItems, closedDropItems };
+}
 
-    addStyles();
+function buildSortedDropItems(openDropItems: HTMLElement[]): DropItem[] {
+  const itemsWithDates: DropItem[] = openDropItems.map(
+    (item, originalIndex) => {
+      const dateElement = item.querySelector(':scope [class*="caYeGJ"]');
+      const dateText = dateElement?.textContent ?? '';
+      const endDate = parseEndDate(dateText);
+      const titleElement = item.querySelector(
+        ':scope .accordion-header [class*="CoreText"]',
+      );
 
-    const firstItem = openDropItems[0];
-    if (!firstItem) return false;
-    const container = firstItem.parentElement;
-    if (!container) return false;
+      return {
+        element: item,
+        dateText,
+        endDate,
+        timestamp: endDate ? endDate.getTime() : Infinity,
+        originalIndex,
+        title: titleElement?.textContent?.trim() ?? '',
+      };
+    },
+  );
 
-    const itemsWithDates: DropItem[] = openDropItems.map(
-      (item, originalIndex) => {
-        const dateElement = item.querySelector('[class*="caYeGJ"]');
-        const dateText = dateElement?.textContent ?? '';
-        const endDate = parseEndDate(dateText);
+  itemsWithDates.sort((a, b) => a.timestamp - b.timestamp);
+  return itemsWithDates;
+}
 
-        const titleElement = item.querySelector(
-          '.accordion-header [class*="CoreText"]',
-        );
-        const title = titleElement?.textContent?.trim() ?? '';
-
-        return {
-          element: item,
-          dateText: dateText,
-          endDate: endDate,
-          timestamp: endDate ? endDate.getTime() : Infinity,
-          originalIndex: originalIndex,
-          title: title,
-        };
-      },
-    );
-
-    itemsWithDates.sort((a, b) => a.timestamp - b.timestamp);
-
-    const masterFilterDiv = document.createElement('div');
-    masterFilterDiv.className = 'drops-master-filter';
-    masterFilterDiv.innerHTML = `
+function createMasterFilter(
+  savedState: FilterState | undefined,
+): HTMLInputElement | undefined {
+  const masterFilterDiv = document.createElement('div');
+  masterFilterDiv.className = 'drops-master-filter';
+  masterFilterDiv.innerHTML = `
             <input type="checkbox" id="drops-master-filter" class="drops-filter-checkbox" ${
-              savedState?.masterEnabled !== false ? 'checked' : ''
+              savedState?.masterEnabled === false ? '' : 'checked'
             }>
             <label for="drops-master-filter">Enable Filtering (uncheck to show all)</label>
         `;
 
-    container.insertBefore(masterFilterDiv, firstItem);
-    const masterCheckbox = document.getElementById(
-      'drops-master-filter',
-    ) as HTMLInputElement | null;
+  return masterFilterDiv.querySelector('#drops-master-filter') as
+    HTMLInputElement | undefined;
+}
 
-    if (!masterCheckbox) return false;
+function scheduleSaveFilterState(): void {
+  setTimeout(() => {
+    void saveFilterState();
+  }, SAVE_DEBOUNCE_MS);
+}
 
-    itemsWithDates.forEach((item, newIndex) => {
-      const button = item.element.querySelector('.accordion-header button');
+function insertCheckbox(button: Element, checkbox: HTMLInputElement): void {
+  if (button.firstChild) {
+    button.insertBefore(checkbox, button.firstChild);
+  } else {
+    button.append(checkbox);
+  }
+}
 
-      if (button) {
-        const savedChecked = savedState?.items?.[item.title];
-        const isChecked = savedChecked !== undefined ? savedChecked : true;
+function attachItemCheckbox(
+  item: DropItem,
+  newIndex: number,
+  masterCheckbox: HTMLInputElement,
+  savedState: FilterState | undefined,
+): void {
+  const button = item.element.querySelector(':scope .accordion-header button');
+  if (!button) return;
 
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'drops-filter-checkbox';
-        checkbox.id = `drop-filter-${newIndex}`;
-        checkbox.checked = isChecked;
+  const isChecked = savedState?.items?.[item.title] ?? true;
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'drops-filter-checkbox';
+  checkbox.id = `drop-filter-${newIndex}`;
+  checkbox.checked = isChecked;
 
-        checkbox.addEventListener('change', (e) => {
-          e.stopPropagation();
-          if (masterCheckbox.checked) {
-            item.element.classList.toggle('drops-hidden', !checkbox.checked);
-          }
-          setTimeout(() => {
-            void saveFilterState();
-          }, 100);
-        });
+  checkbox.addEventListener('change', (event) => {
+    event.stopPropagation();
+    if (masterCheckbox.checked) {
+      item.element.classList.toggle('drops-hidden', !checkbox.checked);
+    }
+    scheduleSaveFilterState();
+  });
 
-        checkbox.addEventListener('click', (e) => {
-          e.stopPropagation();
-        });
+  checkbox.addEventListener('click', (event) => {
+    event.stopPropagation();
+  });
 
-        if (masterCheckbox.checked && !isChecked) {
-          item.element.classList.add('drops-hidden');
-        }
+  if (!isChecked && masterCheckbox.checked) {
+    item.element.classList.add('drops-hidden');
+  }
 
-        if (button.firstChild) {
-          button.insertBefore(checkbox, button.firstChild);
-        } else {
-          button.appendChild(checkbox);
-        }
-      }
+  insertCheckbox(button, checkbox);
+}
 
-      container.appendChild(item.element);
-    });
+function bindMasterFilterChange(
+  masterCheckbox: HTMLInputElement,
+  itemsWithDates: DropItem[],
+): void {
+  masterCheckbox.addEventListener('change', () => {
+    for (const [index, item] of itemsWithDates.entries()) {
+      const checkbox = document.querySelector(`#drop-filter-${index}`) as
+        HTMLInputElement | undefined;
 
-    masterCheckbox.addEventListener('change', () => {
-      itemsWithDates.forEach((item, index) => {
-        const checkbox = document.getElementById(
-          `drop-filter-${index}`,
-        ) as HTMLInputElement | null;
-
-        if (masterCheckbox.checked) {
-          item.element.classList.toggle(
-            'drops-hidden',
-            checkbox ? !checkbox.checked : false,
-          );
-        } else {
-          item.element.classList.remove('drops-hidden');
-        }
-      });
-      setTimeout(() => {
-        void saveFilterState();
-      }, 100);
-    });
-
-    if (closedDropItems.length > 0) {
-      closedDropItems.forEach((item) => {
-        item.classList.add('drops-item-hidden');
-      });
-
-      if (closedDropsHeading !== null && closedDropsHeading !== undefined) {
-        (closedDropsHeading as HTMLElement).classList.add('drops-item-hidden');
+      if (masterCheckbox.checked) {
+        item.element.classList.toggle(
+          'drops-hidden',
+          checkbox ? !checkbox.checked : false,
+        );
+      } else {
+        item.element.classList.remove('drops-hidden');
       }
     }
+    scheduleSaveFilterState();
+  });
+}
 
-    initialized = true;
-    return true;
+function hideClosedCampaigns(
+  closedDropItems: HTMLElement[],
+  closedHeading: HTMLElement | undefined,
+): void {
+  if (closedDropItems.length === 0) return;
+
+  for (const item of closedDropItems) {
+    item.classList.add('drops-item-hidden');
   }
+  closedHeading?.classList.add('drops-item-hidden');
+}
+
+async function didProcessDrops(isInitialized: boolean): Promise<boolean> {
+  if (isInitialized) return true;
+
+  const dropItemElements = collectDropItemElements();
+  if (dropItemElements.length === 0) return false;
+
+  const headings = findCampaignHeadings();
+  if (!headings) return false;
+
+  const { openDropItems, closedDropItems } = splitOpenAndClosedItems(
+    dropItemElements,
+    headings,
+  );
+  if (openDropItems.length === 0) return false;
+
+  const firstItem = openDropItems[0];
+  if (!firstItem) return false;
+  const container = firstItem.parentElement;
+  if (!container) return false;
+
+  addStyles();
+  const savedState = await loadFilterState();
+  const itemsWithDates = buildSortedDropItems(openDropItems);
+  const masterCheckbox = createMasterFilter(savedState);
+  if (!masterCheckbox) return false;
+
+  const masterFilterDiv = masterCheckbox.parentElement;
+  if (!masterFilterDiv) return false;
+  firstItem.before(masterFilterDiv);
+
+  for (const [newIndex, item] of itemsWithDates.entries()) {
+    attachItemCheckbox(item, newIndex, masterCheckbox, savedState);
+    container.append(item.element);
+  }
+
+  bindMasterFilterChange(masterCheckbox, itemsWithDates);
+  hideClosedCampaigns(closedDropItems, headings.closedHeading);
+  return true;
+}
+
+function hasAccordionInMutation(mutation: MutationRecord): boolean {
+  return [...mutation.addedNodes].some((node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+    const element = node as HTMLElement;
+    return (
+      element.classList?.contains('accordion-header') ||
+      Boolean(element.querySelector?.(':scope .accordion-header'))
+    );
+  });
+}
+
+export function initializeCampaigns(): void {
+  let isInitialized = false;
+
+  const runProcess = (): void => {
+    void didProcessDrops(isInitialized).then((didSucceed) => {
+      if (!didSucceed) {
+        return;
+      }
+
+      isInitialized = true;
+      observer.disconnect();
+    });
+  };
 
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      if (mutation.addedNodes.length > 0) {
-        const hasAccordion = Array.from(mutation.addedNodes).some((node) => {
-          return (
-            node.nodeType === 1 &&
-            ((node as HTMLElement).classList?.contains('accordion-header') ||
-              (node as HTMLElement).querySelector?.('.accordion-header'))
-          );
-        });
+      if (mutation.addedNodes.length === 0) continue;
+      if (!hasAccordionInMutation(mutation)) continue;
 
-        if (hasAccordion) {
-          setTimeout(() => {
-            void processDrops().then((success) => {
-              if (success) {
-                observer.disconnect();
-              }
-            });
-          }, 500);
-          break;
-        }
-      }
+      setTimeout(runProcess, MUTATION_PROCESS_DELAY_MS);
+      break;
     }
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
-
-  setTimeout(() => {
-    void processDrops().then((success) => {
-      if (success) {
-        observer.disconnect();
-      }
-    });
-  }, 3000);
+  setTimeout(runProcess, INITIAL_PROCESS_DELAY_MS);
 }

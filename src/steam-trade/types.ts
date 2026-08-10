@@ -36,7 +36,7 @@ export interface SteamTradeConfig {
 // Add interfaces for Steam-specific window properties
 export interface SteamWindow extends Window {
   MoveItemToTrade: (element: HTMLElement) => void;
-  ToggleReady: (ready: boolean) => void;
+  ToggleReady: (isReady: boolean) => void;
   CTradeOfferStateManager: {
     ConfirmTradeOffer: () => void;
   };

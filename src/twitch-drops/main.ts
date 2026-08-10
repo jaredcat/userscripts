@@ -4,11 +4,11 @@ import { initializeInventory } from './inventory';
 // Development hot reload
 if (import.meta.hot) {
   import.meta.hot.accept(() => {
-    window.location.reload();
+    location.reload();
   });
 }
 
-const url = window.location.href;
+const url = location.href;
 
 // Initialize campaigns page handler
 if (url.includes('/drops/campaigns')) {

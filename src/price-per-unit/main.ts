@@ -15,15 +15,19 @@ const SITE_HANDLERS = [
 // Development hot reload
 if (import.meta.hot) {
   import.meta.hot.accept(() => {
-    window.location.reload();
+    location.reload();
   });
 }
 
 // Find and initialize the appropriate handler for current site
 const currentHandler = SITE_HANDLERS.find(({ matcher }) =>
-  matcher(window.location.href),
+  matcher(location.href),
 );
 
 if (currentHandler) {
-  new currentHandler.handler().initialize().catch(console.error);
+  try {
+    await new currentHandler.handler().initialize();
+  } catch (error) {
+    console.error(error);
+  }
 }

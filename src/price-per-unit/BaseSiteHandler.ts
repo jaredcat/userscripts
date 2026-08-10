@@ -1,18 +1,20 @@
-import { ProductInfo } from './types';
-import { createPricePerUnitElement, formatPricePerUnit } from './utils';
+import type { ProductInfo } from './types';
+import { createPricePerUnitElement, formatPricePerUnit } from './utilities';
 
 export abstract class BaseSiteHandler {
   public abstract initialize(): Promise<void>;
 
   protected abstract isProductPage(): boolean;
-  protected abstract extractProductInfo(element: Element): ProductInfo | null;
+  protected abstract extractProductInfo(
+    element: Element,
+  ): ProductInfo | undefined;
 
   protected createObserver(
     container: Element,
     priceContainer: Element,
     onUpdate: (element: HTMLElement) => void,
   ): MutationObserver {
-    const observeOpts: MutationObserverInit = {
+    const observeOptions: MutationObserverInit = {
       childList: true,
       subtree: true,
       characterData: true,
@@ -27,8 +29,8 @@ export abstract class BaseSiteHandler {
         productInfo.pricePerUnit,
         productInfo.unit,
       );
-      let pricePerUnitElement: HTMLElement | null =
-        priceContainer.querySelector('.price-per-unit');
+      let pricePerUnitElement =
+        priceContainer.querySelector<HTMLElement>('.price-per-unit');
 
       observer.disconnect();
       if (!pricePerUnitElement) {
@@ -37,10 +39,10 @@ export abstract class BaseSiteHandler {
       } else if (pricePerUnitElement.textContent !== newText) {
         pricePerUnitElement.textContent = newText;
       }
-      observer.observe(priceContainer, observeOpts);
+      observer.observe(priceContainer, observeOptions);
     });
 
-    observer.observe(priceContainer, observeOpts);
+    observer.observe(priceContainer, observeOptions);
     return observer;
   }
 }

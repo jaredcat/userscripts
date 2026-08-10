@@ -1,5 +1,59 @@
+const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const DAYS_PER_MONTH_APPROX = 30;
+const MS_PER_DAY =
+  MS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR * HOURS_PER_DAY;
+const MS_PER_MONTH_APPROX = MS_PER_DAY * DAYS_PER_MONTH_APPROX;
+const HOUR_12 = 12;
+const MONTH_ABBREVIATION_LENGTH = 3;
+const MONTHS_DIFF_THRESHOLD = 3;
+const MONTHS_DIFF_YEAR_BOUNDARY = 6;
+const EARLY_YEAR_MONTH_MAX = 3;
+const LATE_YEAR_MONTH_MIN = 8;
+const RECENT_DAYS_THRESHOLD = 7;
+const MONTH_INDEX: Record<string, number> = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
+};
+const TZ_OFFSET_HOURS: Record<string, number> = {
+  PST: 8,
+  PDT: 7,
+  EST: 5,
+  EDT: 4,
+  MST: 7,
+  MDT: 6,
+  CST: 6,
+  CDT: 5,
+  AKST: 9,
+  AKDT: 8,
+  HST: 10,
+};
+// Format: "Tue, Dec 9, 8:59 AM PST"
+const END_DATE_PATTERN =
+  /^([A-Z]{3}), ([A-Z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM) ([A-Z]{2,4})$/i;
+
+interface ParsedEndDateParts {
+  month: number;
+  day: number;
+  hour24: number;
+  minute: number;
+  timezone: string;
+}
+
 function addStyles(): void {
-  if (document.getElementById('drops-inventory-styles')) return;
+  if (document.querySelector('#drops-inventory-styles')) return;
 
   const style = document.createElement('style');
   style.id = 'drops-inventory-styles';
@@ -8,45 +62,37 @@ function addStyles(): void {
       display: none !important;
     }
   `;
-  document.head.appendChild(style);
+  document.head.append(style);
+}
+
+function hasCheckmarkPath(button: Element): boolean {
+  const svg = button.querySelector(':scope svg');
+  if (!svg) return false;
+
+  const path = svg.querySelector(':scope path[fill-rule="evenodd"]');
+  if (!path) return false;
+
+  const pathD = path.getAttribute('d') || '';
+  return pathD.includes('M19.707 8.207');
 }
 
 function isAccountConnected(rewardItem: HTMLElement): boolean {
-  // Look for the tooltip that says "Game account connected"
   const tooltip = rewardItem.querySelector(
-    '.ScAttachedTooltip-sc-1ems1ts-1.lmsRqx.tw-tooltip',
+    ':scope .ScAttachedTooltip-sc-1ems1ts-1.lmsRqx.tw-tooltip',
   );
-  if (tooltip && tooltip.textContent?.trim() === 'Game account connected') {
+  if (tooltip?.textContent?.trim() === 'Game account connected') {
     return true;
   }
 
-  // Alternative: check for disabled button with checkmark icon
   const button = rewardItem.querySelector(
-    'button[aria-label="Awarded Drop Connect Button"][disabled]',
+    ':scope button[aria-label="Awarded Drop Connect Button"][disabled]',
   );
-  if (button) {
-    // Check if it has a checkmark SVG (connected state)
-    const svg = button.querySelector('svg');
-    if (svg) {
-      const path = svg.querySelector('path[fill-rule="evenodd"]');
-      if (path) {
-        // The checkmark path contains "M19.707 8.207" which is characteristic
-        const pathD = path.getAttribute('d') || '';
-        if (pathD.includes('M19.707 8.207')) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
+  return Boolean(button && hasCheckmarkPath(button));
 }
 
 function hideConnectedRewards(): void {
   addStyles();
 
-  // Find all reward items in the inventory
-  // Reward items are typically in containers with the structure shown in the HTML
   const allContainers = document.querySelectorAll(
     '.Layout-sc-1xcs6mc-0.fHdBNk',
   );
@@ -55,12 +101,9 @@ function hideConnectedRewards(): void {
 
   allContainers.forEach((container) => {
     const element = container as HTMLElement;
+    const dropImage = element.querySelector(':scope .inventory-drop-image');
+    if (!dropImage) return;
 
-    // Check if this container has an inventory drop image (identifies it as a reward item)
-    const hasDropImage = element.querySelector('.inventory-drop-image');
-    if (!hasDropImage) return;
-
-    // Check if account is connected
     if (isAccountConnected(element)) {
       element.classList.add('drops-inventory-hidden');
       hiddenCount++;
@@ -74,135 +117,121 @@ function hideConnectedRewards(): void {
   }
 }
 
-function parseEndDate(dateText: string): Date | null {
-  // Date format: "Tue, Dec 9, 8:59 AM PST"
-  // Note: Browser Date parsing of timezone abbreviations like "PST" is unreliable,
-  // so we always use manual parsing for accuracy
-  try {
-    // Fallback: manually parse the date
-    // Format: "Day, Month Day, Time AM/PM Timezone"
-    // Example: "Tue, Dec 9, 8:59 AM PST"
-    const match = dateText.match(
-      /(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)\s+(\w+)/i,
-    );
-    if (match) {
-      const [, , monthName, day, hour, minute, ampm, tz] = match;
-      if (!monthName || !day || !hour || !minute || !ampm || !tz) {
-        return null;
-      }
-      const monthMap: Record<string, number> = {
-        jan: 0,
-        feb: 1,
-        mar: 2,
-        apr: 3,
-        may: 4,
-        jun: 5,
-        jul: 6,
-        aug: 7,
-        sep: 8,
-        oct: 9,
-        nov: 10,
-        dec: 11,
-      };
+function to24Hour(hourText: string, ampm: string): number {
+  let hour24 = Math.trunc(Number(hourText));
+  const period = ampm.toUpperCase();
+  if (hour24 !== HOUR_12 && period === 'PM') {
+    hour24 += HOUR_12;
+  } else if (hour24 === HOUR_12 && period === 'AM') {
+    hour24 = 0;
+  }
+  return hour24;
+}
 
-      const month = monthMap[monthName.toLowerCase().substring(0, 3)];
-      if (month !== undefined) {
-        let hour24 = parseInt(hour, 10);
-        if (ampm.toUpperCase() === 'PM' && hour24 !== 12) {
-          hour24 += 12;
-        } else if (ampm.toUpperCase() === 'AM' && hour24 === 12) {
-          hour24 = 0;
-        }
+function parseEndDateParts(dateText: string): ParsedEndDateParts | undefined {
+  const match = END_DATE_PATTERN.exec(dateText);
+  if (!match) return undefined;
 
-        const currentYear = new Date().getFullYear();
-        const currentMonth = new Date().getMonth();
-
-        // Try current year first
-        let date = new Date(
-          Date.UTC(
-            currentYear,
-            month,
-            parseInt(day, 10),
-            hour24,
-            parseInt(minute, 10),
-          ),
-        );
-
-        // Adjust for timezone offset
-        // PST is UTC-8, so 10:59 PM PST = 6:59 AM UTC the next day
-        // We need to ADD the offset to convert from PST to UTC
-        const tzOffsetMap: Record<string, number> = {
-          PST: 8,
-          PDT: 7,
-          EST: 5,
-          EDT: 4,
-          MST: 7,
-          MDT: 6,
-          CST: 6,
-          CDT: 5,
-          AKST: 9,
-          AKDT: 8,
-          HST: 10,
-        };
-
-        const offset = tzOffsetMap[tz.toUpperCase()] ?? 0;
-        // Add offset to convert from timezone to UTC
-        date.setUTCHours(date.getUTCHours() + offset);
-
-        // If the date with current year is likely from the previous year,
-        // adjust it (e.g., we're in Jan 2026, but date is Dec 2025)
-        const now = new Date();
-        const monthsDiff =
-          (date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30);
-
-        if (
-          monthsDiff > 3 &&
-          (monthsDiff > 6 || (currentMonth < 3 && month > 8))
-        ) {
-          // Try previous year
-          const adjustedDate = new Date(
-            Date.UTC(
-              currentYear - 1,
-              month,
-              parseInt(day, 10),
-              hour24,
-              parseInt(minute, 10),
-            ),
-          );
-          adjustedDate.setUTCHours(adjustedDate.getUTCHours() + offset);
-
-          // Use adjusted date if it's now in the past or very recent (within 7 days)
-          if (
-            adjustedDate.getTime() <=
-            now.getTime() + 7 * 24 * 60 * 60 * 1000
-          ) {
-            date = adjustedDate;
-          }
-        }
-
-        return date;
-      }
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  } catch (e) {
-    // Ignore parsing errors
+  const monthName = match[2];
+  const dayText = match[3];
+  const hourText = match[4];
+  const minuteText = match[5];
+  const ampm = match[6];
+  const timezone = match[7];
+  if (
+    !monthName ||
+    !dayText ||
+    !hourText ||
+    !minuteText ||
+    !ampm ||
+    !timezone
+  ) {
+    return undefined;
   }
 
-  return null;
+  const month =
+    MONTH_INDEX[monthName.toLowerCase().slice(0, MONTH_ABBREVIATION_LENGTH)];
+  if (month === undefined) return undefined;
+
+  return {
+    month,
+    day: Math.trunc(Number(dayText)),
+    hour24: to24Hour(hourText, ampm),
+    minute: Math.trunc(Number(minuteText)),
+    timezone,
+  };
+}
+
+function buildUtcDate(
+  year: number,
+  parts: ParsedEndDateParts,
+  offsetHours: number,
+): Date {
+  const date = new Date(
+    Date.UTC(year, parts.month, parts.day, parts.hour24, parts.minute),
+  );
+  date.setUTCHours(date.getUTCHours() + offsetHours);
+  return date;
+}
+
+function shouldUsePreviousYear(
+  date: Date,
+  now: Date,
+  currentMonth: number,
+  month: number,
+): boolean {
+  const monthsDiff = (date.getTime() - now.getTime()) / MS_PER_MONTH_APPROX;
+  if (monthsDiff <= MONTHS_DIFF_THRESHOLD) return false;
+
+  return (
+    monthsDiff > MONTHS_DIFF_YEAR_BOUNDARY ||
+    (currentMonth < EARLY_YEAR_MONTH_MAX && month > LATE_YEAR_MONTH_MIN)
+  );
+}
+
+function resolveYearAdjustedDate(
+  parts: ParsedEndDateParts,
+  offsetHours: number,
+): Date {
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth();
+  const now = new Date();
+  let date = buildUtcDate(currentYear, parts, offsetHours);
+
+  if (!shouldUsePreviousYear(date, now, currentMonth, parts.month)) {
+    return date;
+  }
+
+  const adjustedDate = buildUtcDate(currentYear - 1, parts, offsetHours);
+  const recentThresholdMs = RECENT_DAYS_THRESHOLD * MS_PER_DAY;
+  if (adjustedDate.getTime() <= now.getTime() + recentThresholdMs) {
+    date = adjustedDate;
+  }
+
+  return date;
+}
+
+function parseEndDate(dateText: string): Date | undefined {
+  try {
+    const parts = parseEndDateParts(dateText);
+    if (!parts) return undefined;
+
+    const offsetHours = TZ_OFFSET_HOURS[parts.timezone.toUpperCase()] ?? 0;
+    return resolveYearAdjustedDate(parts, offsetHours);
+  } catch {
+    return undefined;
+  }
 }
 
 function isDateInPast(dateText: string): boolean {
   const endDate = parseEndDate(dateText);
   if (!endDate) return false;
-
-  const now = new Date();
-  return endDate < now;
+  return endDate < new Date();
 }
 
 function hideEndedRewards(): void {
   addStyles();
 
-  // Find all campaign containers
   const campaignContainers = document.querySelectorAll(
     '.Layout-sc-1xcs6mc-0.jtROCr',
   );
@@ -211,22 +240,15 @@ function hideEndedRewards(): void {
 
   campaignContainers.forEach((campaign) => {
     const campaignElement = campaign as HTMLElement;
-
-    // Find the "End Date" text
-    // Look for the span with class "jPfhdt" that contains the date
     const endDateSpan = campaignElement.querySelector(
-      'span.CoreText-sc-1txzju1-0.jPfhdt',
+      ':scope span.CoreText-sc-1txzju1-0.jPfhdt',
     );
+    const dateText = endDateSpan?.textContent?.trim();
+    if (!dateText) return;
 
-    if (endDateSpan && endDateSpan.textContent) {
-      const dateText = endDateSpan.textContent.trim();
-
-      // Check if the date is in the past
-      if (isDateInPast(dateText)) {
-        // Hide the entire campaign
-        campaignElement.classList.add('drops-inventory-hidden');
-        hiddenCount++;
-      }
+    if (isDateInPast(dateText)) {
+      campaignElement.classList.add('drops-inventory-hidden');
+      hiddenCount++;
     }
   });
 
@@ -235,27 +257,23 @@ function hideEndedRewards(): void {
   }
 }
 
-function clickClaimNowButtons(): void {
-  // Find all buttons on the page
-  const allButtons = document.querySelectorAll('button');
+function isClaimNowButton(button: HTMLButtonElement): boolean {
+  if ('dropsClaimClicked' in button.dataset) return false;
+  if (button.disabled) return false;
+  if (!button.offsetParent) return false;
+  return button.textContent?.trim() === 'Claim Now';
+}
 
+function clickClaimNowButtons(): void {
+  const allButtons = document.querySelectorAll('button');
   let clickedCount = 0;
 
   allButtons.forEach((button) => {
-    // Skip if already marked as clicked
-    if (button.hasAttribute('data-drops-claim-clicked')) return;
+    if (!isClaimNowButton(button)) return;
 
-    // Check if button contains "Claim Now" text
-    const buttonText = button.textContent?.trim();
-    if (buttonText === 'Claim Now') {
-      // Check if button is visible and not disabled
-      if (button.offsetParent !== null && !button.disabled) {
-        // Mark as clicked before clicking to avoid duplicate clicks
-        button.setAttribute('data-drops-claim-clicked', 'true');
-        button.click();
-        clickedCount++;
-      }
-    }
+    button.dataset.dropsClaimClicked = 'true';
+    button.click();
+    clickedCount++;
   });
 
   if (clickedCount > 0) {
@@ -264,16 +282,10 @@ function clickClaimNowButtons(): void {
 }
 
 export function initializeInventory(): void {
-  // Click "Claim Now" buttons on initial load
   clickClaimNowButtons();
-
-  // Hide connected rewards on initial load
   hideConnectedRewards();
-
-  // Hide ended rewards on initial load
   hideEndedRewards();
 
-  // Watch for dynamically loaded rewards
   const observer = new MutationObserver(() => {
     clickClaimNowButtons();
     hideConnectedRewards();

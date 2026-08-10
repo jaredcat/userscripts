@@ -1,4 +1,4 @@
-/* eslint-disable no-magic-numbers, max-params, complexity -- calculator domain; many numeric literals */
+/* eslint-disable no-magic-numbers -- calculator domain; many numeric literals */
 /**
  * Kingshot Troop Calculator — augments the troop calculator page:
  * - Persists inputs by field name (v3) + delayed re-apply so React doesn’t stomp Bear sliders.
@@ -11,17 +11,21 @@
 
 if (import.meta.hot) {
   import.meta.hot.accept(() => {
-    window.location.reload();
+    location.reload();
   });
 }
 
 const STORAGE_KEY = 'ks-troop-calc-inputs';
-/** Keyed by field name so Bear/Viking sliders survive DOM reordering. */
+/**
+Keyed by field name so Bear/Viking sliders survive DOM reordering.
+*/
 const STORAGE_KEY_FIELDS = 'ks-troop-calc-fields-v3';
 const STYLE_ID = 'ks-formation-pct-style';
 
 const pageWindow: Window =
-  typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+  typeof unsafeWindow === 'undefined'
+    ? (globalThis as unknown as Window)
+    : unsafeWindow;
 
 // ─── Input index map ─────────────────────────────────────────────────────────
 // 0: mySquad   1: totalInf   2: totalCav   3: totalArc
@@ -58,7 +62,9 @@ type InputValues = {
 
 type PctTargets = { inf: number; cav: number; arc: number };
 
-/** Order for legacy array save and keyed storage (must match IDX). */
+/**
+Order for legacy array save and keyed storage (must match IDX).
+*/
 const FIELD_ORDER: readonly (keyof InputValues)[] = [
   'mySquad',
   'totalInf',
@@ -79,15 +85,17 @@ function getPageInputs(): HTMLInputElement[] {
   return [...pageWindow.document.querySelectorAll('input')];
 }
 
-/** Card that contains an h3 whose text matches (used so input order stays stable when the site adds fields). */
-function findSectionRootByHeading(rx: RegExp): HTMLElement | null {
-  const h = [...pageWindow.document.querySelectorAll('h2, h3')].find((el) =>
-    rx.test(el.textContent?.trim() ?? ''),
+/**
+Card that contains an h3 whose text matches (used so input order stays stable when the site adds fields).
+*/
+function findSectionRootByHeading(rx: RegExp): HTMLElement | undefined {
+  const h = [...pageWindow.document.querySelectorAll('h2, h3')].find(
+    (element) => rx.test(element.textContent?.trim() ?? ''),
   );
-  if (!h) return null;
+  if (!h) return undefined;
   return (h.closest(
     '[class*="rounded-lg"], [class*="rounded"], section, article',
-  ) ?? h.parentElement) as HTMLElement | null;
+  ) ?? h.parentElement) as HTMLElement | undefined;
 }
 
 /**
@@ -102,8 +110,8 @@ function getCalculatorFieldMap(): Partial<
     findSectionRootByHeading(/^inputs?$/i) ??
     findSectionRootByHeading(/troop inputs/i);
   if (inputsRoot) {
-    const inp = [...inputsRoot.querySelectorAll('input')].filter(
-      isNumericLikeInput,
+    const inp = [...inputsRoot.querySelectorAll('input')].filter((element) =>
+      isNumericLikeInput(element),
     );
     const a = inp[0];
     const b = inp[1];
@@ -121,8 +129,8 @@ function getCalculatorFieldMap(): Partial<
     findSectionRootByHeading(/bear preset/i) ??
     findSectionRootByHeading(/bear\s*\(/i);
   if (bearRoot) {
-    const inp = [...bearRoot.querySelectorAll('input')].filter(
-      isNumericLikeInput,
+    const inp = [...bearRoot.querySelectorAll('input')].filter((element) =>
+      isNumericLikeInput(element),
     );
     const a = inp[0];
     const b = inp[1];
@@ -138,8 +146,8 @@ function getCalculatorFieldMap(): Partial<
 
   const vikRoot = findSectionRootByHeading(/vikings? preset/i);
   if (vikRoot) {
-    const inp = [...vikRoot.querySelectorAll('input')].filter(
-      isNumericLikeInput,
+    const inp = [...vikRoot.querySelectorAll('input')].filter((element) =>
+      isNumericLikeInput(element),
     );
     const a = inp[0];
     const b = inp[1];
@@ -154,7 +162,9 @@ function getCalculatorFieldMap(): Partial<
   return out;
 }
 
-/** Same order as InputValues / legacy index save format. */
+/**
+Same order as InputValues / legacy index save format.
+*/
 function getCalculatorOrderedInputs(): HTMLInputElement[] {
   const m = getCalculatorFieldMap();
   const resolved = FIELD_ORDER.map((k) => m[k]).filter(
@@ -162,23 +172,26 @@ function getCalculatorOrderedInputs(): HTMLInputElement[] {
   ) as HTMLInputElement[];
   if (resolved.length === 11) return resolved;
 
-  return [...pageWindow.document.querySelectorAll('input')].filter(
-    isNumericLikeInput,
+  return [...pageWindow.document.querySelectorAll('input')].filter((element) =>
+    isNumericLikeInput(element),
   );
 }
 
-function setReactValue(pageEl: HTMLInputElement, value: string | number): void {
-  const key = Object.keys(pageEl as unknown as Record<string, unknown>).find(
-    (k) => k.startsWith('__reactProps'),
-  );
+function setReactValue(
+  pageElement: HTMLInputElement,
+  value: string | number,
+): void {
+  const key = Object.keys(
+    pageElement as unknown as Record<string, unknown>,
+  ).find((k) => k.startsWith('__reactProps'));
   if (!key) return;
-  const props = (
-    pageEl as unknown as Record<
+  const properties = (
+    pageElement as unknown as Record<
       string,
-      { onChange?: (e: { target: { value: string } }) => void }
+      { onChange?: (event: { target: { value: string } }) => void }
     >
   )[key];
-  const onChange = props?.onChange;
+  const onChange = properties?.onChange;
   if (onChange) onChange({ target: { value: String(value) } });
 }
 
@@ -187,7 +200,7 @@ function setReactValue(pageEl: HTMLInputElement, value: string | number): void {
  * so pastes like "300,000", "300 000", or "12.5" work with React-controlled inputs.
  */
 function sanitizePastedNumericField(text: string): string {
-  const compact = text.replace(/[\s,]/g, '');
+  const compact = text.replaceAll(/[\s,]/g, '');
   let out = '';
   let hasDot = false;
   for (const ch of compact) {
@@ -200,12 +213,10 @@ function sanitizePastedNumericField(text: string): string {
   return out;
 }
 
-function isNumericLikeInput(el: HTMLInputElement): boolean {
-  const t = (el.type || 'text').toLowerCase();
-  if (t === 'checkbox' || t === 'radio' || t === 'file' || t === 'button')
-    return false;
-  if (t === 'hidden' || t === 'submit' || t === 'reset' || t === 'image')
-    return false;
+function isNumericLikeInput(element: HTMLInputElement): boolean {
+  const t = (element.type || 'text').toLowerCase();
+  if (['checkbox', 'radio', 'file', 'button'].includes(t)) return false;
+  if (['hidden', 'submit', 'reset', 'image'].includes(t)) return false;
   return true;
 }
 
@@ -217,7 +228,7 @@ function load(): string[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((x) => String(x));
+    return parsed.map(String);
   } catch {
     return [];
   }
@@ -228,9 +239,9 @@ function saveAll(): void {
   const fields: Partial<Record<keyof InputValues, string>> = {};
   let hasAny = false;
   for (const key of FIELD_ORDER) {
-    const el = m[key];
-    if (el) {
-      fields[key] = el.value;
+    const element = m[key];
+    if (element) {
+      fields[key] = element.value;
       hasAny = true;
     }
   }
@@ -241,17 +252,19 @@ function saveAll(): void {
         JSON.stringify({ v: 3, fields }),
       );
     } catch {
-      /* quota */
+      /*
+      quota
+      */
     }
   }
   const els = getCalculatorOrderedInputs();
-  const values = els.map((el) => el.value);
-  if (values.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(values));
+  const values = els.map((element) => element.value);
+  if (values.length > 0)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(values));
 }
 
-function loadFieldsFromStorage(): Partial<
-  Record<keyof InputValues, string>
-> | null {
+function loadFieldsFromStorage():
+  Partial<Record<keyof InputValues, string>> | undefined {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_FIELDS);
     if (raw) {
@@ -263,18 +276,18 @@ function loadFieldsFromStorage(): Partial<
     const legacy = load();
     if (legacy.length >= FIELD_ORDER.length) {
       const out: Partial<Record<keyof InputValues, string>> = {};
-      for (let i = 0; i < FIELD_ORDER.length; i++) {
-        const key = FIELD_ORDER[i];
-        if (key === undefined) continue;
-        const v = legacy[i];
-        if (v !== undefined) out[key] = String(v);
+      for (const [index, key] of FIELD_ORDER.entries()) {
+        const v = legacy[index];
+        if (v !== undefined) out[key] = v;
       }
       return out;
     }
   } catch {
-    /* ignore */
+    /*
+    ignore
+    */
   }
-  return null;
+  return undefined;
 }
 
 function applySavedFields(
@@ -282,20 +295,24 @@ function applySavedFields(
 ): void {
   const m = getCalculatorFieldMap();
   for (const key of FIELD_ORDER) {
-    const val = fields[key];
-    if (val === undefined) continue;
-    const el = m[key];
-    if (el && String(el.value) !== String(val)) setReactValue(el, val);
+    const value = fields[key];
+    if (value === undefined) continue;
+    const element = m[key];
+    if (element && element.value !== value) setReactValue(element, value);
   }
 }
 
 // ─── One-time restore on page load ───────────────────────────────────────────
 
-let restored = false;
+const state = {
+  isRestored: false,
+  saveTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+  runDebounce: undefined as ReturnType<typeof setTimeout> | undefined,
+};
 
 async function restoreOnce(): Promise<void> {
-  if (restored) return;
-  restored = true;
+  if (state.isRestored) return;
+  state.isRestored = true;
 
   const fields = loadFieldsFromStorage();
   if (!fields || Object.keys(fields).length === 0) return;
@@ -313,35 +330,34 @@ async function restoreOnce(): Promise<void> {
 
 // ─── Input interception — save only ──────────────────────────────────────────
 
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-function onUserInput(e: Event): void {
-  if (!e.isTrusted) return;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveAll, 300);
+function onUserInput(event: Event): void {
+  if (!event.isTrusted) return;
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(saveAll, 300);
 }
 
-function onPasteCapture(e: ClipboardEvent): void {
-  const target = e.target;
+function onPasteCapture(event: ClipboardEvent): void {
+  const target = event.target;
   if (!target || !(target instanceof HTMLInputElement)) return;
   if (!isNumericLikeInput(target)) return;
 
-  const raw = e.clipboardData?.getData('text/plain');
+  const raw = event.clipboardData?.getData('text/plain');
   if (raw === undefined || raw === '') return;
 
   const sanitized = sanitizePastedNumericField(raw);
   if (sanitized === raw) return;
 
-  e.preventDefault();
-  e.stopPropagation();
+  event.preventDefault();
+  event.stopPropagation();
   setReactValue(target, sanitized);
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveAll, 300);
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(saveAll, 300);
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 function injectStyles(): void {
-  if (document.getElementById(STYLE_ID)) return;
+  if (document.querySelector(`#${STYLE_ID}`)) return;
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
@@ -358,13 +374,13 @@ function injectStyles(): void {
       .ks-pct-arc   { color: #4caf82; }
       .ks-pct-warn  { color: #ffab40; font-size: 0.8em; display: block; margin-top: 2px; }
     `;
-  document.head.appendChild(style);
+  document.head.append(style);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function parseCount(text: string | null | undefined): number {
-  return parseInt((text ?? '').replace(/[^0-9]/g, ''), 10) || 0;
+function parseCount(text: string | undefined): number {
+  return Number((text ?? '').replaceAll(/\D/g, '')) || 0;
 }
 
 function fmt(n: number): string {
@@ -372,6 +388,7 @@ function fmt(n: number): string {
 }
 
 type TroopType = 'inf' | 'cav' | 'arc';
+type TroopIndex = 0 | 1 | 2;
 
 type TroopChunk = { inf: number; cav: number; arc: number };
 
@@ -391,11 +408,12 @@ function roundCountTripletToSum(
     exacts[2] - floors[2],
   ];
   const r = rems as readonly number[];
-  const order = [0, 1, 2].sort((a, b) => (r[b] ?? 0) - (r[a] ?? 0));
+  const order: TroopIndex[] = [0, 1, 2];
+  order.sort((a, b) => (r[b] ?? 0) - (r[a] ?? 0));
   let o = 0;
   while (delta > 0) {
-    const idx = (order[o % 3] ?? 0) as 0 | 1 | 2;
-    floors[idx] += 1;
+    const index = order[o % 3] ?? 0;
+    floors[index] += 1;
     delta -= 1;
     o += 1;
   }
@@ -448,7 +466,7 @@ function allocateMarchTowardPreset(
       { k: 'cav' as const, short: ideal.cav - cav, avail: rem.cav - cav },
       { k: 'arc' as const, short: ideal.arc - arc, avail: rem.arc - arc },
     ].filter((x) => x.avail > 0);
-    if (!slack.length) break;
+    if (slack.length === 0) break;
     slack.sort((a, b) => b.short - a.short);
     const pick = slack[0];
     if (pick === undefined) break;
@@ -465,14 +483,16 @@ function bearSliderRoundedPcts(
   cav: number,
   arc: number,
 ): PctTargets {
-  const [i, c, a] = roundTripletTo100([inf, cav, arc], {});
-  return { inf: i, cav: c, arc: a };
+  const [index, c, a] = roundTripletTo100([inf, cav, arc], {});
+  return { inf: index, cav: c, arc: a };
 }
 
 type UniformMarchResult = { march: TroopChunk; marchTotal: number };
 
-/** Exists nonnegative i,c,a with i+c+a=T and per-type caps? */
-function existsCompositionWithSum(
+/**
+Exists nonnegative i,c,a with i+c+a=T and per-type caps?
+*/
+function hasCompositionWithSum(
   T: number,
   capI: number,
   capC: number,
@@ -481,14 +501,16 @@ function existsCompositionWithSum(
   const aMax = Math.min(capA, T);
   for (let a = 0; a <= aMax; a++) {
     const rem = T - a;
-    const iLow = Math.max(0, rem - capC);
-    const iHigh = Math.min(capI, rem);
-    if (iLow <= iHigh) return true;
+    const indexLow = Math.max(0, rem - capC);
+    const indexHigh = Math.min(capI, rem);
+    if (indexLow <= indexHigh) return true;
   }
   return false;
 }
 
-/** Largest T ≤ solo cap such that some composition fits pool-per-march limits. */
+/**
+Largest T ≤ solo cap such that some composition fits pool-per-march limits.
+*/
 function maxFeasibleMarchTotal(
   soloCap: number,
   capI: number,
@@ -500,13 +522,128 @@ function maxFeasibleMarchTotal(
   let hi = upper;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi + 1) / 2);
-    if (existsCompositionWithSum(mid, capI, capC, capA)) lo = mid;
+    if (hasCompositionWithSum(mid, capI, capC, capA)) lo = mid;
     else hi = mid - 1;
   }
   return lo;
 }
 
-/** Best I/C/A for exact total T (denominator for L²), respecting caps. */
+function infFloatForRemainder(rem: number, ti: number, tc: number): number {
+  const denom = ti + tc;
+  if (denom <= 1e-12) {
+    if (ti <= 1e-12 && tc <= 1e-12) return 0;
+    return rem / 2;
+  }
+  return (rem * ti) / denom;
+}
+
+function candidateInfValues(
+  indexFloat: number,
+  indexLow: number,
+  indexHigh: number,
+): Set<number> {
+  const candidates = new Set<number>();
+  for (const d of [-2, -1, 0, 1, 2]) {
+    candidates.add(Math.round(indexFloat) + d);
+  }
+  candidates.add(indexLow);
+  candidates.add(indexHigh);
+  return candidates;
+}
+
+function scoreComposition(
+  index: number,
+  c: number,
+  a: number,
+  T: number,
+  ti: number,
+  tc: number,
+  ta: number,
+): number {
+  const si = index / T - ti;
+  const sc = c / T - tc;
+  const sa = a / T - ta;
+  return si * si + sc * sc + sa * sa;
+}
+
+type CompositionRatios = {
+  T: number;
+  ti: number;
+  tc: number;
+  ta: number;
+};
+
+type CompositionBounds = {
+  indexLow: number;
+  indexHigh: number;
+  capC: number;
+};
+
+function evaluateCompositionCandidate(input: {
+  index: number;
+  rem: number;
+  a: number;
+  bounds: CompositionBounds;
+  ratios: CompositionRatios;
+}): { score: number; chunk: TroopChunk } | undefined {
+  const { index, rem, a, bounds, ratios } = input;
+  if (index < bounds.indexLow || index > bounds.indexHigh) return undefined;
+  const c = rem - index;
+  if (c < 0 || c > bounds.capC) return undefined;
+  return {
+    score: scoreComposition(
+      index,
+      c,
+      a,
+      ratios.T,
+      ratios.ti,
+      ratios.tc,
+      ratios.ta,
+    ),
+    chunk: { inf: index, cav: c, arc: a },
+  };
+}
+
+type CompositionBest = {
+  chunk: TroopChunk | undefined;
+  score: number;
+  tieArcher: number;
+};
+
+function considerCandidatesForArcher(
+  a: number,
+  rem: number,
+  bounds: CompositionBounds,
+  ratios: CompositionRatios,
+  best: CompositionBest,
+): void {
+  const indexFloat = infFloatForRemainder(rem, ratios.ti, ratios.tc);
+  for (const index of candidateInfValues(
+    indexFloat,
+    bounds.indexLow,
+    bounds.indexHigh,
+  )) {
+    const evaluated = evaluateCompositionCandidate({
+      index,
+      rem,
+      a,
+      bounds,
+      ratios,
+    });
+    if (!evaluated) continue;
+    const isBetter =
+      evaluated.score < best.score ||
+      (evaluated.score === best.score && a > best.tieArcher);
+    if (!isBetter) continue;
+    best.score = evaluated.score;
+    best.tieArcher = a;
+    best.chunk = evaluated.chunk;
+  }
+}
+
+/**
+Best I/C/A for exact total T (denominator for L²), respecting caps.
+*/
 function bestCompositionForMarchTotal(
   T: number,
   capI: number,
@@ -518,51 +655,30 @@ function bestCompositionForMarchTotal(
 ): TroopChunk | undefined {
   if (T <= 0) return { inf: 0, cav: 0, arc: 0 };
 
-  let best: TroopChunk | undefined;
-  let bestScore = Infinity;
-  let bestTieArcher = -1;
+  const best: CompositionBest = {
+    chunk: undefined,
+    score: Infinity,
+    tieArcher: -1,
+  };
+  const ratios: CompositionRatios = { T, ti, tc, ta };
 
   const maxA = Math.min(capA, T);
   for (let a = 0; a <= maxA; a++) {
     const rem = T - a;
-    const iLow = Math.max(0, rem - capC);
-    const iHigh = Math.min(capI, rem);
-    if (iLow > iHigh) continue;
+    const indexLow = Math.max(0, rem - capC);
+    const indexHigh = Math.min(capI, rem);
+    if (indexLow > indexHigh) continue;
 
-    const denom = ti + tc;
-    let iFloat: number;
-    if (denom <= 1e-12) {
-      iFloat = ti <= 1e-12 && tc <= 1e-12 ? 0 : rem / 2;
-    } else {
-      iFloat = (rem * ti) / denom;
-    }
-
-    const candidates = new Set<number>();
-    for (const d of [-2, -1, 0, 1, 2]) {
-      candidates.add(Math.round(iFloat) + d);
-    }
-    candidates.add(iLow);
-    candidates.add(iHigh);
-
-    for (const i of candidates) {
-      if (i < iLow || i > iHigh) continue;
-      const c = rem - i;
-      if (c < 0 || c > capC) continue;
-
-      const si = i / T - ti;
-      const sc = c / T - tc;
-      const sa = a / T - ta;
-      const score = si * si + sc * sc + sa * sa;
-
-      if (score < bestScore || (score === bestScore && a > bestTieArcher)) {
-        bestScore = score;
-        bestTieArcher = a;
-        best = { inf: i, cav: c, arc: a };
-      }
-    }
+    considerCandidatesForArcher(
+      a,
+      rem,
+      { indexLow, indexHigh, capC },
+      ratios,
+      best,
+    );
   }
 
-  return best;
+  return best.chunk;
 }
 
 /**
@@ -572,28 +688,24 @@ function bestCompositionForMarchTotal(
  * Never falls back to ignoring stock (that was the bug that showed 10/10/80 over-cap).
  */
 function findBestUniformMarch(
-  totalInf: number,
-  totalCav: number,
-  totalArc: number,
-  numMarches: number,
+  pool: TroopChunk,
+  numberMarches: number,
   mySquad: number,
-  idealInf: number,
-  idealCav: number,
-  idealArc: number,
+  ideal: TroopChunk,
 ): UniformMarchResult {
-  const N = numMarches;
+  const N = numberMarches;
   const S = mySquad;
   if (N <= 0 || S <= 0)
     return { march: { inf: 0, cav: 0, arc: 0 }, marchTotal: 0 };
 
-  const capI = Math.min(S, Math.floor(totalInf / N));
-  const capC = Math.min(S, Math.floor(totalCav / N));
-  const capA = Math.min(S, Math.floor(totalArc / N));
+  const capI = Math.min(S, Math.floor(pool.inf / N));
+  const capC = Math.min(S, Math.floor(pool.cav / N));
+  const capA = Math.min(S, Math.floor(pool.arc / N));
 
-  const norm = idealInf + idealCav + idealArc;
-  const ti = norm > 0 ? idealInf / norm : 1 / 3;
-  const tc = norm > 0 ? idealCav / norm : 1 / 3;
-  const ta = norm > 0 ? idealArc / norm : 1 / 3;
+  const norm = ideal.inf + ideal.cav + ideal.arc;
+  const ti = norm > 0 ? ideal.inf / norm : 1 / 3;
+  const tc = norm > 0 ? ideal.cav / norm : 1 / 3;
+  const ta = norm > 0 ? ideal.arc / norm : 1 / 3;
 
   const T = maxFeasibleMarchTotal(S, capI, capC, capA);
   if (T <= 0) {
@@ -610,7 +722,7 @@ function findBestUniformMarch(
 
 function roundTripletTo100(
   exacts: [number, number, number],
-  opts?: {
+  options?: {
     preferAdd?: TroopType;
     preferSub?: TroopType;
     bias?: [number, number, number];
@@ -626,55 +738,74 @@ function roundTripletTo100(
     exacts[1] - floors[1],
     exacts[2] - floors[2],
   ];
-  const bias = opts?.bias ?? [0, 0, 0];
+  const bias = options?.bias ?? [0, 0, 0];
 
-  const typeToIdx = (t: TroopType): 0 | 1 | 2 =>
-    t === 'inf' ? 0 : t === 'cav' ? 1 : 2;
-  const preferAddIdx = opts?.preferAdd ? typeToIdx(opts.preferAdd) : undefined;
-  const preferSubIdx = opts?.preferSub ? typeToIdx(opts.preferSub) : undefined;
+  const preferAddIndex = options?.preferAdd
+    ? troopTypeToIndex(options.preferAdd)
+    : undefined;
+  const preferSubIndex = options?.preferSub
+    ? troopTypeToIndex(options.preferSub)
+    : undefined;
 
   const sumFloors = floors[0] + floors[1] + floors[2];
   let delta = 100 - sumFloors;
 
   // Add 1% to the largest remainders until we hit 100.
   while (delta > 0) {
-    const idx = ([0, 1, 2] as const)
-      .filter((i) => floors[i] < 100)
-      .sort((a, b) => {
-        const ra = remainders[a] + bias[a];
-        const rb = remainders[b] + bias[b];
-        if (rb !== ra) return rb - ra;
-        if (preferAddIdx !== undefined) {
-          if (a === preferAddIdx && b !== preferAddIdx) return -1;
-          if (b === preferAddIdx && a !== preferAddIdx) return 1;
-        }
-        return a - b;
-      })[0];
-    if (idx === undefined) break;
-    floors[idx] += 1;
+    const index = pickRemainderIndex(
+      ([0, 1, 2] as const).filter((index_) => floors[index_] < 100),
+      remainders,
+      bias,
+      preferAddIndex,
+      'desc',
+    );
+    if (index === undefined) break;
+    floors[index] += 1;
     delta -= 1;
   }
 
   // Subtract 1% from the smallest remainders until we hit 100.
   while (delta < 0) {
-    const idx = ([0, 1, 2] as const)
-      .filter((i) => floors[i] > 0)
-      .sort((a, b) => {
-        const ra = remainders[a] + bias[a];
-        const rb = remainders[b] + bias[b];
-        if (ra !== rb) return ra - rb;
-        if (preferSubIdx !== undefined) {
-          if (a === preferSubIdx && b !== preferSubIdx) return -1;
-          if (b === preferSubIdx && a !== preferSubIdx) return 1;
-        }
-        return a - b;
-      })[0];
-    if (idx === undefined) break;
-    floors[idx] -= 1;
+    const index = pickRemainderIndex(
+      ([0, 1, 2] as const).filter((index_) => floors[index_] > 0),
+      remainders,
+      bias,
+      preferSubIndex,
+      'asc',
+    );
+    if (index === undefined) break;
+    floors[index] -= 1;
     delta += 1;
   }
 
   return floors;
+}
+
+function troopTypeToIndex(t: TroopType): TroopIndex {
+  if (t === 'inf') return 0;
+  if (t === 'cav') return 1;
+  return 2;
+}
+
+function pickRemainderIndex(
+  candidates: readonly TroopIndex[],
+  remainders: [number, number, number],
+  bias: [number, number, number],
+  preferIndex: TroopIndex | undefined,
+  direction: 'asc' | 'desc',
+): TroopIndex | undefined {
+  const sorted: TroopIndex[] = [...candidates];
+  sorted.sort((a, b) => {
+    const ra = (remainders[a] ?? 0) + (bias[a] ?? 0);
+    const rb = (remainders[b] ?? 0) + (bias[b] ?? 0);
+    if (ra !== rb) return direction === 'desc' ? rb - ra : ra - rb;
+    if (preferIndex !== undefined) {
+      if (a === preferIndex && b !== preferIndex) return -1;
+      if (b === preferIndex && a !== preferIndex) return 1;
+    }
+    return a - b;
+  });
+  return sorted[0];
 }
 
 function toColumnGamePcts(
@@ -682,7 +813,7 @@ function toColumnGamePcts(
   cavCount: number,
   arcCount: number,
   mySquad: number,
-  opts?: { preferType?: TroopType; earlyBias?: number },
+  options?: { preferType?: TroopType; earlyBias?: number },
 ): { inf: number; cav: number; arc: number } {
   if (mySquad <= 0) return { inf: 0, cav: 0, arc: 0 };
   const infExact = (infCount / mySquad) * 100;
@@ -691,43 +822,46 @@ function toColumnGamePcts(
 
   // If we have an ambiguous rounding choice, bias it toward the preferred type,
   // and slightly front-load that preference into earlier squads.
-  const preferred = opts?.preferType;
-  const earlyBias = opts?.earlyBias ?? 0;
-  const bias: [number, number, number] =
-    preferred === 'inf'
-      ? [earlyBias, 0, 0]
-      : preferred === 'cav'
-        ? [0, earlyBias, 0]
-        : preferred === 'arc'
-          ? [0, 0, earlyBias]
-          : [0, 0, 0];
+  const preferred = options?.preferType;
+  const earlyBias = options?.earlyBias ?? 0;
+  const bias = biasForPreferredType(preferred, earlyBias);
 
-  const roundingOpts: {
+  const roundingOptions: {
     preferAdd?: TroopType;
     preferSub?: TroopType;
     bias?: [number, number, number];
   } = { bias };
   if (preferred) {
-    roundingOpts.preferAdd = preferred;
-    roundingOpts.preferSub = preferred;
+    roundingOptions.preferAdd = preferred;
+    roundingOptions.preferSub = preferred;
   }
 
   const [inf, cav, arc] = roundTripletTo100(
     [infExact, cavExact, arcExact],
-    roundingOpts,
+    roundingOptions,
   );
   return { inf, cav, arc };
+}
+
+function biasForPreferredType(
+  preferred: TroopType | undefined,
+  earlyBias: number,
+): [number, number, number] {
+  if (preferred === 'inf') return [earlyBias, 0, 0];
+  if (preferred === 'cav') return [0, earlyBias, 0];
+  if (preferred === 'arc') return [0, 0, earlyBias];
+  return [0, 0, 0];
 }
 
 function getInputValues(): InputValues {
   const m = getCalculatorFieldMap();
   const legacy = [...pageWindow.document.querySelectorAll('input')].filter(
-    isNumericLikeInput,
+    (element) => isNumericLikeInput(element),
   );
-  const pick = (k: keyof InputValues, legacyIdx: number): number => {
-    const el = m[k];
-    if (el) return parseCount(el.value);
-    return parseCount(legacy[legacyIdx]?.value);
+  const pick = (k: keyof InputValues, legacyIndex: number): number => {
+    const element = m[k];
+    if (element) return parseCount(element.value);
+    return parseCount(legacy[legacyIndex]?.value);
   };
 
   return {
@@ -767,8 +901,8 @@ function buildPctCell(
 }
 
 function findSplitTable(pattern: RegExp): HTMLTableElement | undefined {
-  const h3 = [...document.querySelectorAll('h3')].find((el) =>
-    pattern.test(el.textContent?.trim() ?? ''),
+  const h3 = [...document.querySelectorAll('h3')].find((element) =>
+    pattern.test(element.textContent?.trim() ?? ''),
   );
   if (!h3) return undefined;
   const card = h3.closest(
@@ -809,7 +943,9 @@ function getTroopRowLoose(
   return undefined;
 }
 
-/** Insert a Rally column after Type when the site only shows squad columns. */
+/**
+Insert a Rally column after Type when the site only shows squad columns.
+*/
 function ensureBearRallyColumn(table: HTMLTableElement): void {
   const headerRow = table.querySelector('tr');
   if (!headerRow || headerRow.cells.length < 3) return;
@@ -825,9 +961,9 @@ function ensureBearRallyColumn(table: HTMLTableElement): void {
 
 function fillTroopDataColumn(row: HTMLTableRowElement, values: number[]): void {
   const last = row.cells.length - 1;
-  for (let i = 0; i < values.length; i++) {
-    const cell = row.cells[i + 1];
-    if (cell) cell.textContent = fmt(values[i] ?? 0);
+  for (const [index, value] of values.entries()) {
+    const cell = row.cells[index + 1];
+    if (cell) cell.textContent = fmt(value ?? 0);
   }
   const totalCell = row.cells[last];
   if (totalCell) {
@@ -845,7 +981,7 @@ function fillSummaryRows(
   const unused = getTroopRowLoose(table, 'unused');
   const usedVals = chunks.map((ch) => ch.inf + ch.cav + ch.arc);
   const supplyVals = chunks.map(() => mySquad);
-  const unusedVals = supplyVals.map((s, i) => s - (usedVals[i] ?? 0));
+  const unusedVals = supplyVals.map((s, index) => s - (usedVals[index] ?? 0));
   if (used) fillTroopDataColumn(used, usedVals);
   if (supply) fillTroopDataColumn(supply, supplyVals);
   if (unused) fillTroopDataColumn(unused, unusedVals);
@@ -861,7 +997,7 @@ function appendBearSplitPctRow(
   rally: TroopChunk,
   squadMarch: TroopChunk,
   squadMarchTotal: number,
-  numSquads: number,
+  numberSquads: number,
   presetGoal: PctTargets,
 ): void {
   if (mySquad <= 0) return;
@@ -873,7 +1009,7 @@ function appendBearSplitPctRow(
   pctRow.classList.add('ks-pct-row');
   const labelCell = document.createElement('td');
   labelCell.textContent = 'Calculated %';
-  pctRow.appendChild(labelCell);
+  pctRow.append(labelCell);
 
   const rallySum = rally.inf + rally.cav + rally.arc;
   const rallyDenom = rallySum > 0 ? rallySum : mySquad;
@@ -884,7 +1020,7 @@ function appendBearSplitPctRow(
     rallyDenom,
     {},
   );
-  pctRow.appendChild(buildPctCell(rallyCalc, rallyCalc, presetGoal));
+  pctRow.append(buildPctCell(rallyCalc, rallyCalc, presetGoal));
 
   const squadDenom = squadMarchTotal > 0 ? squadMarchTotal : mySquad;
   const squadCalc = toColumnGamePcts(
@@ -894,15 +1030,17 @@ function appendBearSplitPctRow(
     squadDenom,
     {},
   );
-  for (let i = 0; i < numSquads; i++) {
-    pctRow.appendChild(buildPctCell(squadCalc, squadCalc, presetGoal));
+  for (let index = 0; index < numberSquads; index++) {
+    pctRow.append(buildPctCell(squadCalc, squadCalc, presetGoal));
   }
 
-  pctRow.appendChild(document.createElement('td'));
-  arcRow.insertAdjacentElement('afterend', pctRow);
+  pctRow.append(document.createElement('td'));
+  arcRow.after(pctRow);
 }
 
-/** One recommended I/C/A line for every column (all Viking squads). */
+/**
+One recommended I/C/A line for every column (all Viking squads).
+*/
 function appendUniformFormationPctRow(
   table: HTMLTableElement,
   mySquad: number,
@@ -923,18 +1061,20 @@ function appendUniformFormationPctRow(
   pctRow.classList.add('ks-pct-row');
   const labelCell = document.createElement('td');
   labelCell.textContent = 'Calculated %';
-  pctRow.appendChild(labelCell);
+  pctRow.append(labelCell);
 
-  for (let i = 0; i < columnCount; i++) {
-    pctRow.appendChild(buildPctCell(display, p, display));
+  for (let index = 0; index < columnCount; index++) {
+    pctRow.append(buildPctCell(display, p, display));
   }
 
-  pctRow.appendChild(document.createElement('td'));
-  arcRow.insertAdjacentElement('afterend', pctRow);
+  pctRow.append(document.createElement('td'));
+  arcRow.after(pctRow);
 }
 
 function processBearSplitTable(table: HTMLTableElement, v: InputValues): void {
-  table.querySelectorAll('tr.ks-pct-row').forEach((r) => r.remove());
+  for (const row of table.querySelectorAll('tr.ks-pct-row')) {
+    row.remove();
+  }
   if (v.mySquad <= 0 || v.bearSquads <= 0) return;
 
   const pool: TroopChunk = {
@@ -953,14 +1093,10 @@ function processBearSplitTable(table: HTMLTableElement, v: InputValues): void {
   const rem = subtractChunk(pool, rally);
 
   const { march, marchTotal } = findBestUniformMarch(
-    rem.inf,
-    rem.cav,
-    rem.arc,
+    rem,
     v.bearSquads,
     v.mySquad,
-    v.bearInf,
-    v.bearCav,
-    v.bearArc,
+    { inf: v.bearInf, cav: v.bearCav, arc: v.bearArc },
   );
 
   ensureBearRallyColumn(table);
@@ -971,9 +1107,9 @@ function processBearSplitTable(table: HTMLTableElement, v: InputValues): void {
   if (!infRow || !cavRow || !arcRow) return;
 
   const n = v.bearSquads;
-  const infVals = [rally.inf, ...new Array<number>(n).fill(march.inf)];
-  const cavVals = [rally.cav, ...new Array<number>(n).fill(march.cav)];
-  const arcVals = [rally.arc, ...new Array<number>(n).fill(march.arc)];
+  const infVals = [rally.inf, ...Array.from({ length: n }, () => march.inf)];
+  const cavVals = [rally.cav, ...Array.from({ length: n }, () => march.cav)];
+  const arcVals = [rally.arc, ...Array.from({ length: n }, () => march.arc)];
   fillTroopDataColumn(infRow, infVals);
   fillTroopDataColumn(cavRow, cavVals);
   fillTroopDataColumn(arcRow, arcVals);
@@ -1003,19 +1139,17 @@ function processVikingsSplitTable(
   table: HTMLTableElement,
   v: InputValues,
 ): void {
-  table.querySelectorAll('tr.ks-pct-row').forEach((r) => r.remove());
+  for (const row of table.querySelectorAll('tr.ks-pct-row')) {
+    row.remove();
+  }
   if (v.mySquad <= 0 || v.vikSquads <= 0) return;
 
   const n = v.vikSquads;
   const { march, marchTotal } = findBestUniformMarch(
-    v.totalInf,
-    v.totalCav,
-    v.totalArc,
+    { inf: v.totalInf, cav: v.totalCav, arc: v.totalArc },
     n,
     v.mySquad,
-    v.vikingInf,
-    v.vikingCav,
-    0,
+    { inf: v.vikingInf, cav: v.vikingCav, arc: 0 },
   );
 
   const infRow = getTroopRow(table, 'infantry');
@@ -1023,9 +1157,18 @@ function processVikingsSplitTable(
   const arcRow = getTroopRow(table, 'archers');
   if (!infRow || !cavRow || !arcRow) return;
 
-  fillTroopDataColumn(infRow, new Array(n).fill(march.inf));
-  fillTroopDataColumn(cavRow, new Array(n).fill(march.cav));
-  fillTroopDataColumn(arcRow, new Array(n).fill(march.arc));
+  fillTroopDataColumn(
+    infRow,
+    Array.from({ length: n }, () => march.inf),
+  );
+  fillTroopDataColumn(
+    cavRow,
+    Array.from({ length: n }, () => march.cav),
+  );
+  fillTroopDataColumn(
+    arcRow,
+    Array.from({ length: n }, () => march.arc),
+  );
 
   const columns: TroopChunk[] = Array.from({ length: n }, () => ({
     inf: march.inf,
@@ -1039,28 +1182,17 @@ function processVikingsSplitTable(
 
 // ─── Training Focus table ─────────────────────────────────────────────────────
 
-function processTrainingTable(v: InputValues): void {
-  const h3 = [...document.querySelectorAll('h3')].find((el) =>
-    /training focus/i.test(el.textContent ?? ''),
-  );
-  if (!h3) return;
-  const card = h3.closest(
-    '[class*="bg-white"], [class*="bg-gray-8"], [class*="rounded-lg"]',
-  );
-  if (!card) return;
-  const table = card.querySelector('table');
-  if (!table) return;
+type TrainingPreset = {
+  id: 'balanced' | 'bear' | 'viking';
+  pattern: RegExp;
+  infR: number;
+  cavR: number;
+  arcR: number;
+  squads: number;
+};
 
-  const rows = [...table.querySelectorAll('tr')];
-
-  const presets: {
-    id: 'balanced' | 'bear' | 'viking';
-    pattern: RegExp;
-    infR: number;
-    cavR: number;
-    arcR: number;
-    squads: number;
-  }[] = [
+function buildTrainingPresets(v: InputValues): TrainingPreset[] {
+  return [
     {
       id: 'balanced',
       pattern: /balanced/i,
@@ -1086,57 +1218,77 @@ function processTrainingTable(v: InputValues): void {
       squads: v.vikSquads,
     },
   ];
+}
 
-  rows.forEach((row) => {
+function computeTrainingGaps(
+  preset: TrainingPreset,
+  v: InputValues,
+): [number, number, number] {
+  const mySquad = v.mySquad;
+  if (preset.id === 'bear') {
+    const marches = v.bearSquads + 1;
+    const one = splitCountsForPreset(mySquad, v.bearInf, v.bearCav, v.bearArc);
+    return [
+      Math.max(0, one.inf * marches - v.totalInf),
+      Math.max(0, one.cav * marches - v.totalCav),
+      Math.max(0, one.arc * marches - v.totalArc),
+    ];
+  }
+  const { infR, cavR, arcR, squads } = preset;
+  return [
+    Math.max(0, Math.round(mySquad * infR * squads) - v.totalInf),
+    Math.max(0, Math.round(mySquad * cavR * squads) - v.totalCav),
+    Math.max(0, Math.round(mySquad * arcR * squads) - v.totalArc),
+  ];
+}
+
+function fillTrainingGapCells(
+  row: HTMLTableRowElement,
+  gaps: readonly [number, number, number],
+): void {
+  for (const [index, cellIndex] of [1, 2, 3].entries()) {
+    const cell = row.cells[cellIndex];
+    const gap = gaps[index];
+    if (!cell || gap === undefined) continue;
+    cell.textContent = fmt(gap);
+  }
+}
+
+function processTrainingTable(v: InputValues): void {
+  const h3 = [...document.querySelectorAll('h3')].find((element) =>
+    /training focus/i.test(element.textContent ?? ''),
+  );
+  if (!h3) return;
+  const card = h3.closest(
+    '[class*="bg-white"], [class*="bg-gray-8"], [class*="rounded-lg"]',
+  );
+  if (!card) return;
+  const table = card.querySelector('table');
+  if (!table) return;
+
+  const presets = buildTrainingPresets(v);
+
+  for (const row of table.querySelectorAll('tr')) {
     const label = row.cells[0]?.textContent?.trim();
-    if (!label) return;
-    if (/^preset$/i.test(label)) return;
+    if (!label || /^preset$/i.test(label)) continue;
 
     const preset = presets.find((p) => p.pattern.test(label));
-    if (!preset) return;
+    if (!preset) continue;
 
-    const { infR, cavR, arcR, squads } = preset;
-    const mySquad = v.mySquad;
-
-    let infGap: number;
-    let cavGap: number;
-    let arcGap: number;
-
-    if (preset.id === 'bear') {
-      const marches = v.bearSquads + 1;
-      const one = splitCountsForPreset(
-        mySquad,
-        v.bearInf,
-        v.bearCav,
-        v.bearArc,
-      );
-      infGap = Math.max(0, one.inf * marches - v.totalInf);
-      cavGap = Math.max(0, one.cav * marches - v.totalCav);
-      arcGap = Math.max(0, one.arc * marches - v.totalArc);
-    } else {
-      infGap = Math.max(0, Math.round(mySquad * infR * squads) - v.totalInf);
-      cavGap = Math.max(0, Math.round(mySquad * cavR * squads) - v.totalCav);
-      arcGap = Math.max(0, Math.round(mySquad * arcR * squads) - v.totalArc);
-    }
-
-    const gaps = [infGap, cavGap, arcGap];
-
-    [1, 2, 3].forEach((cellIdx, i) => {
-      const cell = row.cells[cellIdx];
-      if (!cell) return;
-      const gap = gaps[i];
-      if (gap === undefined) return;
-      cell.textContent = fmt(gap);
-    });
-  });
+    fillTrainingGapCells(row, computeTrainingGaps(preset, v));
+  }
 }
 
 // ─── Training Focus: dynamic “targets” explainer ─────────────────────────────
 // Replaces the site’s fixed “× 4” copy with squads from the Bear / Vikings sliders.
 
+function isExplainerText(text: string): boolean {
+  return /Targets are computed/i.test(text) && text.length < 500;
+}
+
 function updateTrainingFocusExplainer(v: InputValues): void {
-  const h3 = [...document.querySelectorAll('h3')].find((el) =>
-    /training focus/i.test(el.textContent ?? ''),
+  const h3 = [...document.querySelectorAll('h3')].find((element) =>
+    /training focus/i.test(element.textContent ?? ''),
   );
   if (!h3) return;
   const card = h3.closest(
@@ -1148,16 +1300,13 @@ function updateTrainingFocusExplainer(v: InputValues): void {
   const vik = v.vikSquads;
   const balancedSquads = Math.max(bear, vik);
 
-  const isExplainerText = (text: string) =>
-    /Targets are computed/i.test(text) && text.length < 500;
-
   // Only match a <p> so we never replace a wrapper div and drop the table.
-  const el = [...card.querySelectorAll('p')].find((node) =>
+  const element = [...card.querySelectorAll('p')].find((node) =>
     isExplainerText(node.textContent ?? ''),
   );
-  if (!el) return;
+  if (!element) return;
 
-  el.textContent =
+  element.textContent =
     `Targets are computed from ideal march counts (full solo capacity per march). ` +
     `Balanced uses ${balancedSquads} (highest of Bear or Viking). ` +
     `Bear uses ${bear} squads plus 1 rally (${bear + 1} marches at your Bear preset). ` +
@@ -1187,11 +1336,11 @@ function run(): void {
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
-document.addEventListener('input', onUserInput, true);
-document.addEventListener('change', onUserInput, true);
-document.addEventListener('paste', onPasteCapture, true);
+document.addEventListener('input', onUserInput, { capture: true });
+document.addEventListener('change', onUserInput, { capture: true });
+document.addEventListener('paste', onPasteCapture, { capture: true });
 
-function waitForReactThenRestore(maxMs = 10000): void {
+function waitForReactThenRestore(maxMs = 10_000): void {
   const start = Date.now();
   const poll = setInterval(() => {
     const pageInputs = getPageInputs();
@@ -1210,10 +1359,9 @@ function waitForReactThenRestore(maxMs = 10000): void {
   }, 100);
 }
 
-let runDebounce: ReturnType<typeof setTimeout> | undefined;
 const domObserver = new MutationObserver(() => {
-  clearTimeout(runDebounce);
-  runDebounce = setTimeout(run, 150);
+  clearTimeout(state.runDebounce);
+  state.runDebounce = setTimeout(run, 150);
 });
 domObserver.observe(document.body, {
   childList: true,

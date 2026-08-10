@@ -1,39 +1,72 @@
 import { BaseSiteHandler } from './BaseSiteHandler';
-import { ProductInfo } from './types';
+import type { ProductInfo } from './types';
 import {
   createPricePerUnitElement,
   formatPricePerUnit,
+  parsePrice,
   parseSize,
-} from './utils';
+} from './utilities';
 
-declare const unsafeWindow: Window;
+declare const unsafeWindow: Window | undefined;
 
-/** Product + ppu from Chewy PLP API (products[].ppu is e.g. "$0.69/lb") */
+/**
+Product + ppu from Chewy PLP API (products[].ppu is e.g. "$0.69/lb")
+*/
 interface ChewyPlpProduct {
   catalogEntryId: number;
   parentCatalogEntryId: string;
   partNumber: string;
-  ppu: string | null;
+  ppu: string | undefined;
   href?: string | undefined;
-  /** Id from /dp/XXX or parentCatalogEntryId, used to match DOM card */
+  /**
+  Id from /dp/XXX or parentCatalogEntryId, used to match DOM card
+  */
   linkId: string;
 }
 
-const DEBUG = (() => {
+interface ChewyPlpSearchResponse {
+  products?: Record<string, unknown>[];
+}
+
+const IS_DEBUG = (() => {
   try {
     return localStorage.getItem('ppu-debug') === '1';
   } catch {
     return false;
   }
 })();
-const LOG = (msg: string, ...args: unknown[]) => {
-  if (DEBUG) console.log('[price-per-unit Chewy]', msg, ...args);
+const LOG = (message: string, ...arguments_: unknown[]) => {
+  if (IS_DEBUG) console.log('[price-per-unit Chewy]', message, ...arguments_);
 };
 
-export class ChewyPricePerUnit extends BaseSiteHandler {
-  /** Cached products from last /plp/api/search response for sort-by-ppu */
-  private plpProducts: ChewyPlpProduct[] = [];
+const PRODUCT_PAGE_WAIT_MS = 800;
+const LISTING_PAGE_WAIT_MS = 1200;
+const WAIT_FOR_MAIN_MAX_MS = 10_000;
+const WAIT_FOR_MAIN_INTERVAL_MS = 200;
+const DP_PATH_PATTERN = /\/dp\/([^/?#]+)/;
+const GROUP_ID_PATTERN = /-(\d+)$/;
 
+function isChewyPlpSearchResponse(
+  value: unknown,
+): value is ChewyPlpSearchResponse {
+  if (typeof value !== 'object' || !value) return false;
+  if (!('products' in value)) return true;
+  return Array.isArray((value as ChewyPlpSearchResponse).products);
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return undefined;
+}
+
+function asString(value: unknown, fallback = ''): string {
+  return asOptionalString(value) ?? fallback;
+}
+
+export class ChewyPricePerUnit extends BaseSiteHandler {
   private static readonly LISTING_PAGE_INDICATOR = [
     '[data-testid="product-listing"]',
     '.productlisting_container',
@@ -41,7 +74,9 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
     'main [class*="browse"]',
   ].join(', ');
 
-  /** Link to product page: href contains /dp/{id} or /dp/{slug} */
+  /**
+  Link to product page: href contains /dp/{id} or /dp/{slug}
+  */
   private static readonly CARD_LINK_SELECTOR = 'a[href*="/dp/"]';
 
   private static readonly GRID_CONTAINER_SELECTOR =
@@ -67,77 +102,44 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
     'span[class*="size"]',
   ].join(', ');
 
-  /** Real page window (for fetch intercept and credentialed requests in sandboxed engines). */
+  private static mapPlpProduct(
+    product: Record<string, unknown>,
+  ): ChewyPlpProduct {
+    const href = asOptionalString(product.href);
+    const dpMatch = href ? DP_PATH_PATTERN.exec(href) : undefined;
+    return {
+      catalogEntryId: Number(product.catalogEntryId),
+      parentCatalogEntryId: asString(product.parentCatalogEntryId),
+      partNumber: asString(product.partNumber),
+      ppu: asOptionalString(product.ppu),
+      href,
+      linkId:
+        dpMatch?.[1] ??
+        asString(product.parentCatalogEntryId ?? product.catalogEntryId),
+    };
+  }
+
+  /**
+  Cached products from last /plp/api/search response for sort-by-ppu
+  */
+  private plpProducts: ChewyPlpProduct[] = [];
+
+  /**
+  Real page window (for fetch intercept and credentialed requests in sandboxed engines).
+  */
   private get targetWindow(): Window {
-    return typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
-  }
-
-  public async initialize() {
-    this.interceptPlpFetch();
-    if (this.isProductPage()) {
-      await this.addPricePerUnitOnProductPage();
-    } else if (this.isListingPage()) {
-      await this.waitForMainThenAddSort();
-    }
-  }
-
-  protected isProductPage(): boolean {
-    return (
-      /\/p\/[^/]+/i.test(window.location.pathname) ||
-      !!document.querySelector(
-        '[data-testid="product-detail"], .product-detail, [class*="ProductDetail"]',
-      )
-    );
+    return (unsafeWindow ?? globalThis) as Window;
   }
 
   private isListingPage(): boolean {
     return (
-      /\/b\/[^/]+/i.test(window.location.pathname) ||
+      /\/b\/[^/]+/i.test(location.pathname) ||
       !!document.querySelector(ChewyPricePerUnit.LISTING_PAGE_INDICATOR)
     );
   }
 
-  protected extractProductInfo(element: Element): ProductInfo | null {
-    const priceEl = element.querySelector(ChewyPricePerUnit.PRICE_IN_CARD);
-    const sizeEl = element.querySelector(ChewyPricePerUnit.SIZE_IN_CARD);
-    const priceText = (priceEl?.textContent ?? '').replace(/,/g, '').trim();
-    const sizeText = (sizeEl?.textContent ?? '').trim();
-
-    const priceMatch = priceText.match(/\$[\d,]+(?:\.\d{2})?/);
-    const price = priceMatch
-      ? parseFloat(priceMatch[0].replace(/[$,]/g, ''))
-      : NaN;
-    if (!Number.isFinite(price)) return null;
-
-    const sizeInfo = parseSize(sizeText);
-    if (!sizeInfo) {
-      const fromTitle =
-        element.getAttribute('aria-label') ??
-        element.querySelector('[class*="title"], [class*="name"]')
-          ?.textContent ??
-        '';
-      const fromAny = parseSize(fromTitle || sizeText || priceText);
-      if (!fromAny) return null;
-      const pricePerUnit = price / fromAny.quantity;
-      return {
-        price,
-        quantity: fromAny.quantity,
-        unit: fromAny.unit,
-        pricePerUnit,
-      };
-    }
-
-    const pricePerUnit = price / sizeInfo.quantity;
-    return {
-      price,
-      quantity: sizeInfo.quantity,
-      unit: sizeInfo.unit,
-      pricePerUnit,
-    };
-  }
-
   private async addPricePerUnitOnProductPage() {
-    await this.waitForStable(800);
+    await this.waitForStable(PRODUCT_PAGE_WAIT_MS);
 
     const container =
       document.querySelector('[data-testid="product-detail"]') ??
@@ -151,52 +153,58 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
       container.querySelector('.price');
     if (!priceContainer) return;
 
-    this.createObserver(container, priceContainer, (el) =>
-      priceContainer.appendChild(el),
+    this.createObserver(container, priceContainer, (element) =>
+      priceContainer.append(element),
     );
 
     const productInfo = this.extractProductInfo(container);
     if (!productInfo?.pricePerUnit) return;
 
-    const el = createPricePerUnitElement(
+    const element = createPricePerUnitElement(
       formatPricePerUnit(productInfo.pricePerUnit, productInfo.unit),
     );
-    priceContainer.appendChild(el);
+    priceContainer.append(element);
   }
 
-  private findDesktopSortContainer(): Element | null {
+  private findDesktopSortContainer(): Element | undefined {
     const sortSelect = document.querySelector('[class*="Sort_sortSelect"]');
     if (sortSelect?.parentElement) return sortSelect.parentElement;
-    return document.querySelector(ChewyPricePerUnit.DESKTOP_SORT_SELECTOR);
+    return (
+      document.querySelector(ChewyPricePerUnit.DESKTOP_SORT_SELECTOR) ??
+      undefined
+    );
   }
 
   private createSortButtonsFragment(): HTMLElement {
     const wrap = document.createElement('span');
     wrap.style.display = 'inline-flex';
-    wrap.setAttribute('data-price-per-unit-sort', '1');
-    const btnAsc = document.createElement('button');
-    btnAsc.type = 'button';
-    btnAsc.textContent = 'Unit price ↑';
-    btnAsc.style.cssText = 'margin-left:8px;cursor:pointer;padding:4px 8px;';
-    btnAsc.addEventListener('click', () => this.sortListingByUnitPrice('asc'));
-    const btnDesc = document.createElement('button');
-    btnDesc.type = 'button';
-    btnDesc.textContent = 'Unit price ↓';
-    btnDesc.style.cssText = 'margin-left:4px;cursor:pointer;padding:4px 8px;';
-    btnDesc.addEventListener('click', () =>
+    wrap.dataset.pricePerUnitSort = '1';
+    const buttonAsc = document.createElement('button');
+    buttonAsc.type = 'button';
+    buttonAsc.textContent = 'Unit price ↑';
+    buttonAsc.style.cssText = 'margin-left:8px;cursor:pointer;padding:4px 8px;';
+    buttonAsc.addEventListener('click', () =>
+      this.sortListingByUnitPrice('asc'),
+    );
+    const buttonDesc = document.createElement('button');
+    buttonDesc.type = 'button';
+    buttonDesc.textContent = 'Unit price ↓';
+    buttonDesc.style.cssText =
+      'margin-left:4px;cursor:pointer;padding:4px 8px;';
+    buttonDesc.addEventListener('click', () =>
       this.sortListingByUnitPrice('desc'),
     );
-    wrap.append(btnAsc, btnDesc);
+    wrap.append(buttonAsc, buttonDesc);
     return wrap;
   }
 
   private async waitForMainThenAddSort(): Promise<void> {
-    const maxWait = 10000;
-    const interval = 200;
-    const deadline = Date.now() + maxWait;
+    const deadline = Date.now() + WAIT_FOR_MAIN_MAX_MS;
     const readySelector = `${ChewyPricePerUnit.GRID_CONTAINER_SELECTOR}, ${ChewyPricePerUnit.DESKTOP_SORT_SELECTOR}`;
     while (!document.querySelector(readySelector) && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, interval));
+      await new Promise((resolve) =>
+        setTimeout(resolve, WAIT_FOR_MAIN_INTERVAL_MS),
+      );
     }
     if (!document.querySelector(readySelector)) {
       LOG('waitForMainThenAddSort: grid never appeared');
@@ -205,7 +213,7 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
   }
 
   private async addSortByUnitPriceOnListingPage() {
-    await this.waitForStable(1200);
+    await this.waitForStable(LISTING_PAGE_WAIT_MS);
 
     const desktopContainer = this.findDesktopSortContainer();
     const mobileContainer = document.querySelector(
@@ -222,14 +230,14 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
       desktopContainer &&
       !desktopContainer.querySelector('[data-price-per-unit-sort="1"]')
     ) {
-      desktopContainer.appendChild(this.createSortButtonsFragment());
+      desktopContainer.append(this.createSortButtonsFragment());
       LOG('addSortByUnitPrice: injected into desktop container');
     }
     if (
       mobileContainer &&
       !mobileContainer.querySelector('[data-price-per-unit-sort="1"]')
     ) {
-      mobileContainer.appendChild(this.createSortButtonsFragment());
+      mobileContainer.append(this.createSortButtonsFragment());
       LOG('addSortByUnitPrice: injected into mobile container');
     }
     if (!desktopContainer && !mobileContainer) {
@@ -242,94 +250,87 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
           this.createSortButtonsFragment(),
         );
       } else {
-        document.body.appendChild(this.createSortButtonsFragment());
+        document.body.append(this.createSortButtonsFragment());
       }
       LOG('addSortByUnitPrice: fallback inject');
     }
   }
 
+  private resolveFetchUrl(input: RequestInfo | URL): string {
+    if (typeof input === 'string') return input;
+    if (input instanceof Request) return input.url;
+    return input.href;
+  }
+
+  private productsFromPlpJson(json: unknown): ChewyPlpProduct[] | undefined {
+    if (!isChewyPlpSearchResponse(json) || !Array.isArray(json.products)) {
+      return undefined;
+    }
+    return json.products.map((product) =>
+      ChewyPricePerUnit.mapPlpProduct(product),
+    );
+  }
+
   private interceptPlpFetch() {
     const win = this.targetWindow;
-    const orig = win.fetch;
-    win.fetch = (
+    const originalFetch = win.fetch.bind(win);
+    win.fetch = async (
       input: RequestInfo | URL,
       init?: RequestInit,
     ): Promise<Response> => {
-      const url =
-        typeof input === 'string'
-          ? input
-          : input instanceof Request
-            ? input.url
-            : input.toString();
-      if (typeof url === 'string' && url.includes('/plp/api/search')) {
-        return orig.call(win, input, init).then(async (res) => {
-          const clone = res.clone();
-          try {
-            const json = await clone.json();
-            if (json?.products && Array.isArray(json.products)) {
-              this.plpProducts = json.products.map(
-                ChewyPricePerUnit.mapPlpProduct,
-              );
-            }
-          } catch (e) {
-            LOG('interceptPlpFetch: failed to parse response', e);
-          }
-          return res;
-        });
+      const url = this.resolveFetchUrl(input);
+      const response = await originalFetch(input, init);
+      if (url.includes('/plp/api/search')) {
+        try {
+          const json: unknown = await response.clone().json();
+          const products = this.productsFromPlpJson(json);
+          if (products) this.plpProducts = products;
+        } catch (error) {
+          LOG('interceptPlpFetch: failed to parse response', error);
+        }
       }
-      return orig.call(win, input, init);
+      return response;
     };
   }
 
-  private static mapPlpProduct(p: Record<string, unknown>): ChewyPlpProduct {
-    const href = p.href != null ? String(p.href) : undefined;
-    const dpMatch = href?.match(/\/dp\/([^/?#]+)/);
-    return {
-      catalogEntryId: Number(p.catalogEntryId),
-      parentCatalogEntryId: String(p.parentCatalogEntryId ?? ''),
-      partNumber: String(p.partNumber ?? ''),
-      ppu: p.ppu != null ? String(p.ppu) : null,
-      href,
-      linkId:
-        dpMatch?.[1] ?? String(p.parentCatalogEntryId ?? p.catalogEntryId),
-    };
+  private parsePpu(ppu: string | undefined): number | undefined {
+    if (ppu === undefined) return undefined;
+    const match = /\$?([\d.]+)/.exec(ppu);
+    const number_ = match?.[1];
+    return number_ === undefined ? undefined : Number(number_);
   }
 
-  private parsePpu(ppu: string | null): number | null {
-    if (ppu == null) return null;
-    const m = ppu.match(/\$?([\d.]+)/);
-    const num = m?.[1];
-    return num != null ? parseFloat(num) : null;
-  }
-
-  private getProductIdFromCard(card: Element): string | null {
-    const cat = card.getAttribute('data-category');
-    if (cat) return cat;
-    const a = card.querySelector<HTMLAnchorElement>(
+  private getProductIdFromCard(card: Element): string | undefined {
+    if (card instanceof HTMLElement) {
+      const category = card.dataset.category;
+      if (category) return category;
+    }
+    const anchor = card.querySelector<HTMLAnchorElement>(
       ChewyPricePerUnit.CARD_LINK_SELECTOR,
     );
-    if (!a?.href) return null;
-    const match = a.href.match(/\/dp\/([^/?#]+)/);
-    return match?.[1] ?? null;
+    if (!anchor?.href) return undefined;
+    const match = DP_PATH_PATTERN.exec(anchor.href);
+    return match?.[1];
   }
 
   private async ensurePlpProducts(): Promise<boolean> {
     if (this.plpProducts.length > 0) return true;
-    const m = window.location.pathname.match(/-(\d+)$/);
-    const groupId = m ? m[1] : null;
+    const match = GROUP_ID_PATTERN.exec(location.pathname);
+    const groupId = match?.[1];
     if (!groupId) return false;
     const url = `https://www.chewy.com/plp/api/search?catalogId=1004&count=36&from=0&sort=byRelevance&groupId=${groupId}`;
     try {
-      const res = await this.targetWindow.fetch(url, {
+      const response = await this.targetWindow.fetch(url, {
         credentials: 'include',
       });
-      const json = await res.json();
-      if (json?.products && Array.isArray(json.products)) {
-        this.plpProducts = json.products.map(ChewyPricePerUnit.mapPlpProduct);
+      const json: unknown = await response.json();
+      const products = this.productsFromPlpJson(json);
+      if (products) {
+        this.plpProducts = products;
         return true;
       }
-    } catch (e) {
-      LOG('ensurePlpProducts: fetch failed', e);
+    } catch (error) {
+      LOG('ensurePlpProducts: fetch failed', error);
     }
     return false;
   }
@@ -345,20 +346,20 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
       return;
     }
 
-    const cards = Array.from(
-      gridContainer.querySelectorAll<HTMLElement>(
+    const cards = [
+      ...gridContainer.querySelectorAll<HTMLElement>(
         ChewyPricePerUnit.PRODUCT_CARD_SELECTOR,
       ),
-    );
+    ];
     LOG('sortListingByUnitPrice: cards.length', cards.length);
     if (cards.length === 0) return;
 
     // Build API PPU lookup (if intercepted data is available)
     const apiPpuById = new Map<string, number>();
     await this.ensurePlpProducts();
-    for (const p of this.plpProducts) {
-      const ppu = this.parsePpu(p.ppu);
-      apiPpuById.set(p.linkId, ppu ?? Number.POSITIVE_INFINITY);
+    for (const product of this.plpProducts) {
+      const ppu = this.parsePpu(product.ppu);
+      apiPpuById.set(product.linkId, ppu ?? Infinity);
     }
 
     const getPpu = (card: HTMLElement): number => {
@@ -367,8 +368,7 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
         const fromApi = apiPpuById.get(id);
         if (fromApi !== undefined) return fromApi;
       }
-      const domPpu = card.getAttribute('data-price-per-unit');
-      return this.parsePpu(domPpu) ?? Number.POSITIVE_INFINITY;
+      return this.parsePpu(card.dataset.pricePerUnit) ?? Infinity;
     };
 
     cards.sort((a, b) => {
@@ -379,12 +379,66 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
 
     LOG('sortListingByUnitPrice: reordering', cards.length, 'cards');
     for (const card of cards) {
-      gridContainer.appendChild(card);
+      gridContainer.append(card);
     }
     LOG('sortListingByUnitPrice: done');
   }
 
   private async waitForStable(ms: number) {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  public async initialize() {
+    this.interceptPlpFetch();
+    if (this.isProductPage()) {
+      await this.addPricePerUnitOnProductPage();
+    } else if (this.isListingPage()) {
+      await this.waitForMainThenAddSort();
+    }
+  }
+
+  protected isProductPage(): boolean {
+    return (
+      /\/p\/[^/]+/i.test(location.pathname) ||
+      !!document.querySelector(
+        '[data-testid="product-detail"], .product-detail, [class*="ProductDetail"]',
+      )
+    );
+  }
+
+  protected extractProductInfo(element: Element): ProductInfo | undefined {
+    const priceElement = element.querySelector(ChewyPricePerUnit.PRICE_IN_CARD);
+    const sizeElement = element.querySelector(ChewyPricePerUnit.SIZE_IN_CARD);
+    const priceText = (priceElement?.textContent ?? '').trim();
+    const sizeText = (sizeElement?.textContent ?? '').trim();
+
+    const price = parsePrice(priceText);
+    if (!Number.isFinite(price)) return undefined;
+
+    const sizeInfo = parseSize(sizeText);
+    if (!sizeInfo) {
+      const fromTitle =
+        element.getAttribute('aria-label') ??
+        element.querySelector('[class*="title"], [class*="name"]')
+          ?.textContent ??
+        '';
+      const fromAny = parseSize(fromTitle || sizeText || priceText);
+      if (!fromAny) return undefined;
+      const pricePerUnit = price / fromAny.quantity;
+      return {
+        price,
+        quantity: fromAny.quantity,
+        unit: fromAny.unit,
+        pricePerUnit,
+      };
+    }
+
+    const pricePerUnit = price / sizeInfo.quantity;
+    return {
+      price,
+      quantity: sizeInfo.quantity,
+      unit: sizeInfo.unit,
+      pricePerUnit,
+    };
   }
 }

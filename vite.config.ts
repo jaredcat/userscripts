@@ -1,5 +1,5 @@
-import fs from 'fs';
-import { resolve } from 'path';
+import fs from 'node:fs';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import monkey from 'vite-plugin-monkey';
 

@@ -25,62 +25,51 @@ const episodeData: Episode[] = [
   },
 ];
 
+function fillRowField(
+  row: HTMLElement,
+  selector: string,
+  value: string | undefined,
+): void {
+  if (value === undefined) return;
+  const input = row.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+    selector,
+  );
+  if (input) input.value = value;
+}
+
+function ensureRowExists(index: number): HTMLElement | undefined {
+  let rows = document.querySelectorAll<HTMLElement>('.multirow-item');
+  if (index >= rows.length - 1) {
+    const multirowAddControl =
+      document.querySelector<HTMLElement>('.multirow-add');
+    multirowAddControl?.click();
+    rows = document.querySelectorAll<HTMLElement>('.multirow-item');
+  }
+  return rows[index];
+}
+
+function fillEpisodeRow(row: HTMLElement, episode: Episode): void {
+  fillRowField(row, 'input[name="number[]"]', episode.number);
+  fillRowField(row, 'input[name="name[]"]', episode.name);
+  fillRowField(row, 'textarea[name="overview[]"]', episode.overview);
+  fillRowField(row, 'input[name="date[]"]', episode.date);
+  fillRowField(row, 'input[name="runtime[]"]', episode.runtime?.toString());
+}
+
 function fillEpisodeData(episodes: Episode[]): void {
-  // Get all episode rows
-  const rows = document.querySelectorAll<HTMLElement>('.multirow-item');
-
-  episodes.forEach((episode, index) => {
-    if (index >= rows.length - 1) {
-      // Click "Add Another" button if we need more rows
-      const addButton = document.querySelector<HTMLElement>('.multirow-add');
-      addButton?.click();
-    }
-
-    const row = document.querySelectorAll<HTMLElement>('.multirow-item')[index];
-    if (!row) return;
-
-    // Fill episode number
-    const numberInput = row.querySelector<HTMLInputElement>(
-      'input[name="number[]"]',
-    );
-    if (numberInput) numberInput.value = episode.number;
-
-    // Fill episode name
-    const nameInput = row.querySelector<HTMLInputElement>(
-      'input[name="name[]"]',
-    );
-    if (nameInput) nameInput.value = episode.name;
-
-    // Fill overview
-    const overviewInput = row.querySelector<HTMLTextAreaElement>(
-      'textarea[name="overview[]"]',
-    );
-    if (overviewInput) overviewInput.value = episode.overview;
-
-    // Fill date
-    if (episode.date) {
-      const dateInput = row.querySelector<HTMLInputElement>(
-        'input[name="date[]"]',
-      );
-      if (dateInput) dateInput.value = episode.date;
-    }
-
-    // Fill runtime
-    if (episode.runtime) {
-      const runtimeInput = row.querySelector<HTMLInputElement>(
-        'input[name="runtime[]"]',
-      );
-      if (runtimeInput) runtimeInput.value = episode.runtime.toString();
-    }
-  });
+  for (const [index, episode] of episodes.entries()) {
+    const row = ensureRowExists(index);
+    if (!row) continue;
+    fillEpisodeRow(row, episode);
+  }
 }
 
 // Add button to trigger the fill
-const btn = document.createElement('button');
-btn.innerText = 'Auto-fill Episodes';
-btn.style.position = 'fixed';
-btn.style.top = '10px';
-btn.style.right = '10px';
-btn.style.zIndex = '9999';
-btn.onclick = () => fillEpisodeData(episodeData);
-document.body.appendChild(btn);
+const button = document.createElement('button');
+button.textContent = 'Auto-fill Episodes';
+button.style.position = 'fixed';
+button.style.top = '10px';
+button.style.right = '10px';
+button.style.zIndex = '9999';
+button.addEventListener('click', () => fillEpisodeData(episodeData));
+document.body.append(button);

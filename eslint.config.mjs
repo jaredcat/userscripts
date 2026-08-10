@@ -1,5 +1,7 @@
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
+import sonarjs from 'eslint-plugin-sonarjs';
+import unicorn from 'eslint-plugin-unicorn';
 import globals from 'globals';
 import ts from 'typescript-eslint';
 
@@ -7,6 +9,8 @@ import ts from 'typescript-eslint';
 export default [
   js.configs.recommended,
   ...ts.configs.recommended,
+  sonarjs.configs.recommended,
+  unicorn.configs.recommended,
   prettier,
   {
     files: ['src/**/*.ts'],
@@ -24,9 +28,6 @@ export default [
     },
     rules: {
       // Security rules
-      'no-eval': 'error',
-      'no-implied-eval': 'error',
-      'no-new-func': 'error',
       'no-script-url': 'error',
       // Type safety
       '@typescript-eslint/no-unsafe-assignment': 'warn',
@@ -35,11 +36,6 @@ export default [
       '@typescript-eslint/no-unsafe-return': 'warn',
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',
-      // Code quality
-      complexity: ['warn', { max: 15 }],
-      'max-lines-per-function': ['warn', { max: 100, skipComments: true }],
-      'max-depth': ['warn', { max: 4 }],
-      'max-params': ['warn', { max: 5 }],
       // Best practices
       'no-magic-numbers': [
         'warn',
@@ -54,6 +50,8 @@ export default [
       // Error handling
       'no-throw-literal': 'error',
       'prefer-promise-reject-errors': 'error',
+      // Userscript / browser DOM conventions
+      'unicorn/filename-case': 'off',
     },
   },
   {

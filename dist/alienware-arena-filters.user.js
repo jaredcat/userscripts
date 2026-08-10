@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Alienware Arena Filters
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.1.5
+// @version      1.1.6
 // @author       jaredcat
 // @description  Enhances Alienware Arena website with additional filtering options
 // @license      AGPL-3.0-or-later
@@ -15,6 +15,7 @@
 (async function() {
 	"use strict";
 	var _GM = (() => typeof GM != "undefined" ? GM : void 0)();
+	var DEFAULT_USER_TIER = 99;
 	var defaultSettings = {
 		hideClosedGiveaways: true,
 		hideTierRestricted: true,
@@ -22,18 +23,23 @@
 		hideOutOfStock: true,
 		hideClaimed: true
 	};
+	function isPartialFilterSettings(value) {
+		return typeof value === "object" && value !== null;
+	}
 	async function getSettings() {
 		const savedSettings = await _GM.getValue("filterSettings");
 		const settings = { ...defaultSettings };
 		if (savedSettings) try {
-			const parsed = typeof savedSettings === "string" ? JSON.parse(savedSettings) : savedSettings ?? {};
+			const parsedUnknown = typeof savedSettings === "string" ? JSON.parse(savedSettings) : savedSettings;
+			if (!isPartialFilterSettings(parsedUnknown)) return settings;
+			const parsed = parsedUnknown;
 			Object.assign(settings, parsed);
-			if (parsed.userTier != null) {
+			if (parsed.userTier !== void 0) {
 				const tierValue = Number(parsed.userTier);
 				if (!Number.isNaN(tierValue)) settings.userTier = tierValue;
 			}
-		} catch (e) {
-			console.error("Error parsing saved settings:", e);
+		} catch (error) {
+			console.error("Error parsing saved settings:", error);
 			return defaultSettings;
 		}
 		return settings;
@@ -46,16 +52,15 @@
 		await _GM.setValue("filterSettings", JSON.stringify(newSettings));
 	}
 	function extractTier(text) {
-		const match = text.match(/Tier\s*(\d+)/i);
-		if (match && match[1]) return parseInt(match[1], 10);
-		return null;
+		const match = /Tier\s*(\d+)/i.exec(text);
+		if (match?.[1]) return Number(match[1]);
 	}
 	async function checkAndStoreTier() {
 		const tierImg = document.querySelector("img[src*=\"/images/content/tier-tags/\"]");
 		if (tierImg) {
-			const tierMatch = tierImg.src.match(/tier-tags\/(\d+)\.png/);
-			if (tierMatch && tierMatch[1]) {
-				const userTier = parseInt(tierMatch[1], 10);
+			const tierMatch = /tier-tags\/(\d+)\.png/.exec(tierImg.src);
+			if (tierMatch?.[1]) {
+				const userTier = Number(tierMatch[1]);
 				await saveSettings({ userTier });
 				console.log("Stored user tier:", userTier);
 			}
@@ -63,7 +68,7 @@
 	}
 	async function filterGiveaways() {
 		const settings = await getSettings();
-		const userTier = settings.userTier ?? 99;
+		const userTier = settings.userTier ?? DEFAULT_USER_TIER;
 		document.querySelectorAll("div.mb-3.community-giveaways__listing__row").forEach((giveaway) => {
 			const text = giveaway.textContent || "";
 			if (settings.hideClosedGiveaways && text.includes("Closed")) {
@@ -78,7 +83,7 @@
 	}
 	async function filterMarketplace() {
 		const settings = await getSettings();
-		const userTier = settings.userTier ?? 99;
+		const userTier = settings.userTier ?? DEFAULT_USER_TIER;
 		document.querySelectorAll(".pointer.marketplace-game-small, .pointer.marketplace-game-large, .product-tile, .featured-tile").forEach((item) => {
 			const text = item.textContent || "";
 			if (settings.hideOutOfStock && text.toLowerCase().includes("out of stock")) {
@@ -99,122 +104,8 @@
 			if (flashDealsSection) flashDealsSection.style.display = "none";
 		}
 	}
-	async function createSettingsMenu() {
-		const settings = await getSettings();
-		const menuHTML = `
-      <div
-        id="alienware-filter-settings"
-        role="dialog"
-        aria-labelledby="settings-title"
-        aria-modal="true">
-        <div role="document">
-          <!-- Title -->
-          <div id="settings-title" role="heading" aria-level="1">Filter Settings</div>
-
-          <!-- Settings Form -->
-          <form>
-            <!-- Global Settings Section -->
-            <div class="settings-section" style="margin-bottom: 20px">
-              <div role="heading" aria-level="2" class="section-heading">
-                Global Settings
-              </div>
-              <div
-                class="settings-group"
-                role="group"
-                aria-label="Global Filter Options">
-                <div class="setting">
-                  <label class="settingsLabel">
-                    <input type="checkbox" id="hideTierRestricted" ${settings.hideTierRestricted ? "checked" : ""}
-                    aria-describedby="hideTierDesc"> Hide Higher Tier Content
-                  </label>
-                  <span id="hideTierDesc" class="sr-only"
-                    >If checked, content requiring a higher tier than your current
-                    tier will be hidden</span
-                  >
-                </div>
-                <div class="setting">
-                  <label class="settingsLabel">
-                    <input type="checkbox" id="autoSyncTier" ${!settings.hideTierRestricted ? "disabled" : ""} ${settings.autoSyncTier ? "checked" : ""}
-                    aria-describedby="autoSyncTierDesc"> Auto Sync Tier
-                  </label>
-                  <span id="hideTierDesc" class="sr-only"
-                    >If checked, tier restrictions will be automatically synced from
-                    your profile</span
-                  >
-                </div>
-                <div class="setting">
-                  <label class="settingsLabel">
-                    User tier:
-                    <input id="manualSetTier" type="text" inputmode="numeric" pattern="[0-9]*" size="1" maxlength="2" ${settings.autoSyncTier ? "disabled" : ""} value="${settings.userTier ? settings.userTier : ""}"
-                    aria-describedby="manualSetTierDesc">
-                  </label>
-                  <span id="manualSetTierDesc" class="sr-only">
-                    The user tier that is used to filter content on the site</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Game Vault and Marketplace Section -->
-            <div class="settings-section" style="margin-bottom: 20px">
-              <div role="heading" aria-level="2" class="section-heading">
-                Marketplace &amp; Game Vault
-              </div>
-              <div
-                class="settings-group"
-                role="group"
-                aria-label="Marketplace Options">
-                <div class="setting">
-                  <label class="settingsLabel">
-                    <input type="checkbox" id="hideOutOfStock" ${settings.hideOutOfStock ? "checked" : ""}
-                    aria-describedby="hideStockDesc"> Hide Out of Stock Items
-                  </label>
-                  <span id="hideStockDesc" class="sr-only"
-                    >If checked, items that are out of stock will be hidden</span
-                  >
-                </div>
-                <div class="setting">
-                  <label class="settingsLabel">
-                    <input type="checkbox" id="hideClaimed" ${settings.hideClaimed ? "checked" : ""} aria-describedby="hideClaimedDesc"> Hide Claimed
-                    Items
-                  </label>
-                  <span id="hideClaimedDesc" class="sr-only"
-                    >If checked, items that you have claimed will be hidden</span
-                  >
-                </div>
-              </div>
-            </div>
-
-            <!-- Community Giveaways Section -->
-            <div class="settings-section" style="margin-bottom: 20px">
-              <div role="heading" aria-level="2" class="section-heading">
-                Community Giveaways
-              </div>
-              <div
-                class="settings-group"
-                role="group"
-                aria-label="Community Giveaway Options">
-                <div class="setting">
-                  <label class="settingsLabel">
-                    <input type="checkbox" id="hideClosedGiveaways" ${settings.hideClosedGiveaways ? "checked" : ""}
-                    aria-describedby="hideClosedDesc"> Hide Closed Giveaways
-                  </label>
-                  <span id="hideClosedDesc" class="sr-only"
-                    >If checked, giveaways that are already closed will be
-                    hidden</span
-                  >
-                </div>
-              </div>
-            </div>
-
-            <!-- Action Buttons -->
-            <div style="text-align: right">
-              <button id="saveFilterSettings" type="submit">Save</button>
-              <button id="closeFilterSettings" type="button">Close</button>
-            </div>
-          </form>
-        </div>
-      </div>
-
+	function buildSettingsMenuStyles() {
+		return `
       <style>
         #alienware-filter-settings {
           display: none;
@@ -287,47 +178,184 @@
         }
       </style>
     `;
-		document.body.insertAdjacentHTML("beforeend", menuHTML);
-		document.getElementById("saveFilterSettings")?.addEventListener("click", (e) => {
-			e.preventDefault();
-			const hideClosedGiveaways = document.getElementById("hideClosedGiveaways")?.checked;
-			const hideTierRestricted = document.getElementById("hideTierRestricted")?.checked;
-			const autoSyncTier = document.getElementById("autoSyncTier")?.checked;
-			saveSettings({
-				hideClosedGiveaways,
-				hideTierRestricted,
-				autoSyncTier,
-				hideOutOfStock: document.getElementById("hideOutOfStock")?.checked,
-				hideClaimed: document.getElementById("hideClaimed")?.checked,
-				...!autoSyncTier && { userTier: parseInt(document.getElementById("manualSetTier")?.value) }
-			});
-			const modal = document.getElementById("alienware-filter-settings");
-			if (modal) modal.style.display = "none";
-			location.reload();
-		});
-		const modal = document.getElementById("alienware-filter-settings");
-		document.getElementById("closeFilterSettings")?.addEventListener("click", () => {
-			if (modal) modal.style.display = "none";
-		});
-		document.addEventListener("keydown", (e) => {
-			if (e.key === "Escape" && modal?.style.display === "block") modal.style.display = "none";
-		});
-		modal?.addEventListener("keydown", (e) => {
-			if (e.key === "Tab") {
-				const focusableElements = modal.querySelectorAll("button, input[type=\"checkbox\"]");
-				const firstFocusable = focusableElements[0];
-				const lastFocusable = focusableElements[focusableElements.length - 1];
-				if (e.shiftKey) {
-					if (document.activeElement === firstFocusable) {
-						lastFocusable.focus();
-						e.preventDefault();
-					}
-				} else if (document.activeElement === lastFocusable) {
-					firstFocusable.focus();
-					e.preventDefault();
+	}
+	function buildGlobalSettingsSection(settings) {
+		return `
+            <div class="settings-section" style="margin-bottom: 20px">
+              <div role="heading" aria-level="2" class="section-heading">
+                Global Settings
+              </div>
+              <div
+                class="settings-group"
+                role="group"
+                aria-label="Global Filter Options">
+                <div class="setting">
+                  <label class="settingsLabel">
+                    <input type="checkbox" id="hideTierRestricted" ${settings.hideTierRestricted ? "checked" : ""}
+                    aria-describedby="hideTierDesc"> Hide Higher Tier Content
+                  </label>
+                  <span id="hideTierDesc" class="sr-only"
+                    >If checked, content requiring a higher tier than your current
+                    tier will be hidden</span
+                  >
+                </div>
+                <div class="setting">
+                  <label class="settingsLabel">
+                    <input type="checkbox" id="autoSyncTier" ${settings.hideTierRestricted ? "" : "disabled"} ${settings.autoSyncTier ? "checked" : ""}
+                    aria-describedby="autoSyncTierDesc"> Auto Sync Tier
+                  </label>
+                  <span id="hideTierDesc" class="sr-only"
+                    >If checked, tier restrictions will be automatically synced from
+                    your profile</span
+                  >
+                </div>
+                <div class="setting">
+                  <label class="settingsLabel">
+                    User tier:
+                    <input id="manualSetTier" type="text" inputmode="numeric" pattern="[0-9]*" size="1" maxlength="2" ${settings.autoSyncTier ? "disabled" : ""} value="${settings.userTier || ""}"
+                    aria-describedby="manualSetTierDesc">
+                  </label>
+                  <span id="manualSetTierDesc" class="sr-only">
+                    The user tier that is used to filter content on the site</span>
+                </div>
+              </div>
+            </div>`;
+	}
+	function buildMarketplaceSettingsSection(settings) {
+		return `
+            <div class="settings-section" style="margin-bottom: 20px">
+              <div role="heading" aria-level="2" class="section-heading">
+                Marketplace &amp; Game Vault
+              </div>
+              <div
+                class="settings-group"
+                role="group"
+                aria-label="Marketplace Options">
+                <div class="setting">
+                  <label class="settingsLabel">
+                    <input type="checkbox" id="hideOutOfStock" ${settings.hideOutOfStock ? "checked" : ""}
+                    aria-describedby="hideStockDesc"> Hide Out of Stock Items
+                  </label>
+                  <span id="hideStockDesc" class="sr-only"
+                    >If checked, items that are out of stock will be hidden</span
+                  >
+                </div>
+                <div class="setting">
+                  <label class="settingsLabel">
+                    <input type="checkbox" id="hideClaimed" ${settings.hideClaimed ? "checked" : ""} aria-describedby="hideClaimedDesc"> Hide Claimed
+                    Items
+                  </label>
+                  <span id="hideClaimedDesc" class="sr-only"
+                    >If checked, items that you have claimed will be hidden</span
+                  >
+                </div>
+              </div>
+            </div>`;
+	}
+	function buildGiveawaysSettingsSection(settings) {
+		return `
+            <div class="settings-section" style="margin-bottom: 20px">
+              <div role="heading" aria-level="2" class="section-heading">
+                Community Giveaways
+              </div>
+              <div
+                class="settings-group"
+                role="group"
+                aria-label="Community Giveaway Options">
+                <div class="setting">
+                  <label class="settingsLabel">
+                    <input type="checkbox" id="hideClosedGiveaways" ${settings.hideClosedGiveaways ? "checked" : ""}
+                    aria-describedby="hideClosedDesc"> Hide Closed Giveaways
+                  </label>
+                  <span id="hideClosedDesc" class="sr-only"
+                    >If checked, giveaways that are already closed will be
+                    hidden</span
+                  >
+                </div>
+              </div>
+            </div>`;
+	}
+	function buildSettingsMenuHTML(settings) {
+		return `
+      <div
+        id="alienware-filter-settings"
+        role="dialog"
+        aria-labelledby="settings-title"
+        aria-modal="true">
+        <div role="document">
+          <div id="settings-title" role="heading" aria-level="1">Filter Settings</div>
+          <form>
+            ${buildGlobalSettingsSection(settings)}
+            ${buildMarketplaceSettingsSection(settings)}
+            ${buildGiveawaysSettingsSection(settings)}
+            <div style="text-align: right">
+              <button id="saveFilterSettings" type="submit">Save</button>
+              <button id="closeFilterSettings" type="button">Close</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      ${buildSettingsMenuStyles()}
+    `;
+	}
+	function isCheckboxChecked(id) {
+		return document.querySelector(`#${id}`)?.checked ?? false;
+	}
+	function setModalDisplay(modal, display) {
+		if (modal) modal.style.display = display;
+	}
+	function readSettingsFromForm() {
+		const isHideClosedGiveaways = isCheckboxChecked("hideClosedGiveaways");
+		const isHideTierRestricted = isCheckboxChecked("hideTierRestricted");
+		const isAutoSyncTier = isCheckboxChecked("autoSyncTier");
+		return {
+			hideClosedGiveaways: isHideClosedGiveaways,
+			hideTierRestricted: isHideTierRestricted,
+			autoSyncTier: isAutoSyncTier,
+			hideOutOfStock: isCheckboxChecked("hideOutOfStock"),
+			hideClaimed: isCheckboxChecked("hideClaimed"),
+			...!isAutoSyncTier && { userTier: Number(document.querySelector("#manualSetTier")?.value) }
+		};
+	}
+	function bindSettingsMenuFocusTrap(modal) {
+		modal.addEventListener("keydown", (event) => {
+			if (event.key !== "Tab") return;
+			const focusableElements = [...modal.querySelectorAll("button, input[type=\"checkbox\"]")];
+			const firstFocusable = focusableElements[0];
+			const lastFocusable = focusableElements.at(-1);
+			if (firstFocusable === void 0 || lastFocusable === void 0) return;
+			if (event.shiftKey) {
+				if (document.activeElement === firstFocusable) {
+					lastFocusable.focus();
+					event.preventDefault();
 				}
+			} else if (document.activeElement === lastFocusable) {
+				firstFocusable.focus();
+				event.preventDefault();
 			}
 		});
+	}
+	function bindSettingsMenuEvents(modal) {
+		document.querySelector("#saveFilterSettings")?.addEventListener("click", (event) => {
+			event.preventDefault();
+			saveSettings(readSettingsFromForm());
+			setModalDisplay(modal, "none");
+			location.reload();
+		});
+		document.querySelector("#closeFilterSettings")?.addEventListener("click", () => {
+			setModalDisplay(modal, "none");
+		});
+		document.addEventListener("keydown", (event) => {
+			if (event.key === "Escape" && modal.style.display === "block") modal.style.display = "none";
+		});
+		bindSettingsMenuFocusTrap(modal);
+	}
+	async function createSettingsMenu() {
+		const settings = await getSettings();
+		document.body.insertAdjacentHTML("beforeend", buildSettingsMenuHTML(settings));
+		const modal = document.querySelector("#alienware-filter-settings");
+		if (!modal) return;
+		bindSettingsMenuEvents(modal);
 	}
 	function addSettingsButton() {
 		const menuList = document.querySelector(".nav-item-mus .dropdown-menu.dropdown-menu-end");
@@ -336,18 +364,18 @@
 			settingsItem.className = "dropdown-item";
 			settingsItem.href = "#";
 			settingsItem.textContent = "Filter Settings";
-			settingsItem.addEventListener("click", (e) => {
-				e.preventDefault();
-				const modal = document.getElementById("alienware-filter-settings");
-				if (modal) modal.style.display = "block";
+			settingsItem.addEventListener("click", (event) => {
+				event.preventDefault();
+				setModalDisplay(document.querySelector("#alienware-filter-settings") ?? void 0, "block");
 			});
 			menuList.insertBefore(settingsItem, menuList.lastElementChild);
 		}
 	}
-	var currentPath = window.location.pathname;
+	var currentPath = location.pathname;
 	await(createSettingsMenu());
 	addSettingsButton();
-	if ((await(getSettings())).autoSyncTier && currentPath === "/control-center") await(checkAndStoreTier());
+	var settings = await(getSettings());
+	if (currentPath === "/control-center" && settings.autoSyncTier) await(checkAndStoreTier());
 	else if (currentPath === "/community-giveaways") new MutationObserver(() => {
 		filterGiveaways();
 	}).observe(document.body, {

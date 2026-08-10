@@ -3,7 +3,7 @@ import type { MonkeyUserScript } from 'vite-plugin-monkey';
 const metadata: MonkeyUserScript = {
   name: 'SteamTrade Matcher Userscript',
   namespace: 'https://www.steamtradematcher.com',
-  version: '2.1.4',
+  version: '2.1.5',
   author: 'Robou / Tithen-Firion / jaredcat',
   description:
     'Allows quicker trade offers by automatically adding cards as matched by SteamTrade Matcher',

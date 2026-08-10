@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TVDB Episode Input Automation
 // @namespace    jaredcat/tvdb-episode-automation
-// @version      0.0.3
+// @version      0.0.4
 // @author       jaredcat
 // @description  Automates episode input process on TVDB
 // @license      AGPL-3.0-or-later
@@ -25,34 +25,39 @@
 		date: "2012-12-5",
 		runtime: 25
 	}];
-	function fillEpisodeData(episodes) {
-		const rows = document.querySelectorAll(".multirow-item");
-		episodes.forEach((episode, index) => {
-			if (index >= rows.length - 1) document.querySelector(".multirow-add")?.click();
-			const row = document.querySelectorAll(".multirow-item")[index];
-			if (!row) return;
-			const numberInput = row.querySelector("input[name=\"number[]\"]");
-			if (numberInput) numberInput.value = episode.number;
-			const nameInput = row.querySelector("input[name=\"name[]\"]");
-			if (nameInput) nameInput.value = episode.name;
-			const overviewInput = row.querySelector("textarea[name=\"overview[]\"]");
-			if (overviewInput) overviewInput.value = episode.overview;
-			if (episode.date) {
-				const dateInput = row.querySelector("input[name=\"date[]\"]");
-				if (dateInput) dateInput.value = episode.date;
-			}
-			if (episode.runtime) {
-				const runtimeInput = row.querySelector("input[name=\"runtime[]\"]");
-				if (runtimeInput) runtimeInput.value = episode.runtime.toString();
-			}
-		});
+	function fillRowField(row, selector, value) {
+		if (value === void 0) return;
+		const input = row.querySelector(selector);
+		if (input) input.value = value;
 	}
-	var btn = document.createElement("button");
-	btn.innerText = "Auto-fill Episodes";
-	btn.style.position = "fixed";
-	btn.style.top = "10px";
-	btn.style.right = "10px";
-	btn.style.zIndex = "9999";
-	btn.onclick = () => fillEpisodeData(episodeData);
-	document.body.appendChild(btn);
+	function ensureRowExists(index) {
+		let rows = document.querySelectorAll(".multirow-item");
+		if (index >= rows.length - 1) {
+			document.querySelector(".multirow-add")?.click();
+			rows = document.querySelectorAll(".multirow-item");
+		}
+		return rows[index];
+	}
+	function fillEpisodeRow(row, episode) {
+		fillRowField(row, "input[name=\"number[]\"]", episode.number);
+		fillRowField(row, "input[name=\"name[]\"]", episode.name);
+		fillRowField(row, "textarea[name=\"overview[]\"]", episode.overview);
+		fillRowField(row, "input[name=\"date[]\"]", episode.date);
+		fillRowField(row, "input[name=\"runtime[]\"]", episode.runtime?.toString());
+	}
+	function fillEpisodeData(episodes) {
+		for (const [index, episode] of episodes.entries()) {
+			const row = ensureRowExists(index);
+			if (!row) continue;
+			fillEpisodeRow(row, episode);
+		}
+	}
+	var button = document.createElement("button");
+	button.textContent = "Auto-fill Episodes";
+	button.style.position = "fixed";
+	button.style.top = "10px";
+	button.style.right = "10px";
+	button.style.zIndex = "9999";
+	button.addEventListener("click", () => fillEpisodeData(episodeData));
+	document.body.append(button);
 })();

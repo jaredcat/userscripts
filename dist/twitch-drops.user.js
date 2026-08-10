@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch Drops Page Tools
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.0.2
+// @version      1.0.3
 // @author       jaredcat
 // @description  Sort Twitch drops by end date and add filtering checkboxes
 // @license      AGPL-3.0-or-later
@@ -16,13 +16,33 @@
 (function() {
 	"use strict";
 	var STORAGE_KEY = "twitchDropsFilterState";
+	var DATE_PARTS_MINIMUM = 2;
+	var HOUR_12$1 = 12;
+	var SAVE_DEBOUNCE_MS = 100;
+	var MUTATION_PROCESS_DELAY_MS = 500;
+	var INITIAL_PROCESS_DELAY_MS = 3e3;
+	var MONTH_INDEX$1 = {
+		Jan: 0,
+		Feb: 1,
+		Mar: 2,
+		Apr: 3,
+		May: 4,
+		Jun: 5,
+		Jul: 6,
+		Aug: 7,
+		Sep: 8,
+		Oct: 9,
+		Nov: 10,
+		Dec: 11
+	};
+	var END_DATE_PATTERN$1 = /([A-Za-z]{3}), ([A-Za-z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM)/;
 	async function saveFilterState() {
 		const state = {
-			masterEnabled: document.getElementById("drops-master-filter")?.checked ?? true,
+			masterEnabled: document.querySelector("#drops-master-filter")?.checked ?? true,
 			items: {}
 		};
 		document.querySelectorAll("[id^=\"drop-filter-\"]").forEach((checkbox) => {
-			const titleElement = checkbox.closest("div")?.querySelector(".accordion-header [class*=\"CoreText\"]");
+			const titleElement = checkbox.closest("div")?.querySelector(":scope .accordion-header [class*=\"CoreText\"]");
 			if (titleElement) {
 				const title = titleElement.textContent?.trim() ?? "";
 				state.items[title] = checkbox.checked;
@@ -32,51 +52,44 @@
 	}
 	async function loadFilterState() {
 		try {
-			const saved = await GM.getValue(STORAGE_KEY, null);
+			const saved = await GM.getValue(STORAGE_KEY, void 0);
 			if (saved) return JSON.parse(saved);
-		} catch (e) {
-			console.warn("[Drops Sorter] Error loading filter state:", e);
+		} catch (error) {
+			console.warn("[Drops Sorter] Error loading filter state:", error);
 		}
-		return null;
+	}
+	function to12HourClockHours(hourText, ampm) {
+		let hours = Math.trunc(Number(hourText));
+		if (hours !== HOUR_12$1 && ampm === "PM") hours += HOUR_12$1;
+		if (hours === HOUR_12$1 && ampm === "AM") hours = 0;
+		return hours;
 	}
 	function parseEndDate$1(dateString) {
 		const parts = dateString.split(" - ");
-		if (parts.length < 2) return null;
-		const endDateStr = parts[1]?.trim();
-		if (!endDateStr) return null;
-		const match = endDateStr.match(/([A-Za-z]{3}), ([A-Za-z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM)/);
-		if (!match) return null;
-		const [, , month, day, hour, minute, ampm] = match;
+		if (parts.length < DATE_PARTS_MINIMUM) return void 0;
+		const endDateString = parts[1]?.trim();
+		if (!endDateString) return void 0;
+		const match = END_DATE_PATTERN$1.exec(endDateString);
+		if (!match) return void 0;
+		const month = match[2];
+		const day = match[3];
+		const hour = match[4];
+		const minute = match[5];
+		const ampm = match[6];
+		if (month === void 0 || ampm === void 0) return void 0;
+		const monthNumber = MONTH_INDEX$1[month];
+		if (monthNumber === void 0) return void 0;
 		const currentDate = new Date();
 		const currentYear = currentDate.getFullYear();
 		const currentMonth = currentDate.getMonth();
 		const currentDay = currentDate.getDate();
-		const months = {
-			Jan: 0,
-			Feb: 1,
-			Mar: 2,
-			Apr: 3,
-			May: 4,
-			Jun: 5,
-			Jul: 6,
-			Aug: 7,
-			Sep: 8,
-			Oct: 9,
-			Nov: 10,
-			Dec: 11
-		};
-		if (month === void 0) return null;
-		const monthNum = months[month];
-		if (monthNum === void 0) return null;
-		let year = currentYear;
-		if (monthNum < currentMonth) year = currentYear + 1;
-		let hours = parseInt(hour ?? "0", 10);
-		if (ampm === "PM" && hours !== 12) hours += 12;
-		if (ampm === "AM" && hours === 12) hours = 0;
-		return new Date(year, monthNum, parseInt(day || currentDay.toString(), 10), hours, parseInt(minute ?? "0", 10));
+		const year = monthNumber < currentMonth ? currentYear + 1 : currentYear;
+		const dayOfMonth = Math.trunc(Number(day || String(currentDay)));
+		const minuteOfHour = Math.trunc(Number(minute ?? "0"));
+		return new Date(year, monthNumber, dayOfMonth, to12HourClockHours(hour ?? "0", ampm), minuteOfHour);
 	}
 	function addStyles$1() {
-		if (document.getElementById("drops-sorter-styles")) return;
+		if (document.querySelector("#drops-sorter-styles")) return;
 		const style = document.createElement("style");
 		style.id = "drops-sorter-styles";
 		style.textContent = `
@@ -107,148 +120,225 @@
                 display: none !important;
             }
         `;
-		document.head.appendChild(style);
+		document.head.append(style);
 	}
-	function initializeCampaigns() {
-		let initialized = false;
-		async function processDrops() {
-			if (initialized) return true;
-			const savedState = await loadFilterState();
-			const allDivs = document.querySelectorAll("div");
-			const dropItemElements = [];
-			allDivs.forEach((div) => {
-				if (div.querySelector(".accordion-header")) {
-					if (div.querySelector("[class*=\"caYeGJ\"]")) {
-						const accordionHeader = div.querySelector(".accordion-header");
-						if (accordionHeader && accordionHeader.parentElement === div) dropItemElements.push(div);
-					}
-				}
-			});
-			if (dropItemElements.length === 0) return false;
-			const allH4s = document.querySelectorAll("h4");
-			let openDropsHeading = null;
-			let closedDropsHeading = null;
-			allH4s.forEach((h4) => {
-				const text = h4.textContent?.trim();
-				if (text === "Open Drop Campaigns") openDropsHeading = h4;
-				else if (text === "Closed Drop Campaigns") closedDropsHeading = h4;
-			});
-			if (!openDropsHeading) return false;
-			const openDropItems = [];
-			const closedDropItems = [];
-			const openHeading = openDropsHeading;
-			dropItemElements.forEach((item) => {
-				const isAfterOpen = (openHeading.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-				let isBeforeClosed = true;
-				let isAfterClosed = false;
-				if (closedDropsHeading) {
-					const closedPosition = closedDropsHeading.compareDocumentPosition(item);
-					isBeforeClosed = (closedPosition & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
-					isAfterClosed = (closedPosition & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-				}
-				if (isAfterOpen && isBeforeClosed) openDropItems.push(item);
-				else if (isAfterClosed) closedDropItems.push(item);
-			});
-			if (openDropItems.length === 0) return false;
-			addStyles$1();
-			const firstItem = openDropItems[0];
-			if (!firstItem) return false;
-			const container = firstItem.parentElement;
-			if (!container) return false;
-			const itemsWithDates = openDropItems.map((item, originalIndex) => {
-				const dateText = item.querySelector("[class*=\"caYeGJ\"]")?.textContent ?? "";
-				const endDate = parseEndDate$1(dateText);
-				const title = item.querySelector(".accordion-header [class*=\"CoreText\"]")?.textContent?.trim() ?? "";
-				return {
-					element: item,
-					dateText,
-					endDate,
-					timestamp: endDate ? endDate.getTime() : Infinity,
-					originalIndex,
-					title
-				};
-			});
-			itemsWithDates.sort((a, b) => a.timestamp - b.timestamp);
-			const masterFilterDiv = document.createElement("div");
-			masterFilterDiv.className = "drops-master-filter";
-			masterFilterDiv.innerHTML = `
-            <input type="checkbox" id="drops-master-filter" class="drops-filter-checkbox" ${savedState?.masterEnabled !== false ? "checked" : ""}>
+	function collectDropItemElements() {
+		const dropItemElements = [];
+		document.querySelectorAll("div").forEach((div) => {
+			if (!div.querySelector(":scope .accordion-header")) return;
+			if (!div.querySelector(":scope [class*=\"caYeGJ\"]")) return;
+			if (div.querySelector(":scope .accordion-header")?.parentElement === div) dropItemElements.push(div);
+		});
+		return dropItemElements;
+	}
+	function findCampaignHeadings() {
+		let openHeading;
+		let closedHeading;
+		document.querySelectorAll("h4").forEach((h4) => {
+			const text = h4.textContent?.trim();
+			if (text === "Open Drop Campaigns") openHeading = h4;
+			else if (text === "Closed Drop Campaigns") closedHeading = h4;
+		});
+		if (!openHeading) return void 0;
+		return {
+			openHeading,
+			closedHeading
+		};
+	}
+	function isFollowing(reference, item) {
+		return (reference.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+	}
+	function isPreceding(reference, item) {
+		return (reference.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
+	}
+	function splitOpenAndClosedItems(dropItemElements, headings) {
+		const openDropItems = [];
+		const closedDropItems = [];
+		const { openHeading, closedHeading } = headings;
+		for (const item of dropItemElements) {
+			const isAfterOpen = isFollowing(openHeading, item);
+			const isBeforeClosed = closedHeading ? isPreceding(closedHeading, item) : true;
+			const isAfterClosed = closedHeading ? isFollowing(closedHeading, item) : false;
+			if (isAfterOpen && isBeforeClosed) openDropItems.push(item);
+			else if (isAfterClosed) closedDropItems.push(item);
+		}
+		return {
+			openDropItems,
+			closedDropItems
+		};
+	}
+	function buildSortedDropItems(openDropItems) {
+		const itemsWithDates = openDropItems.map((item, originalIndex) => {
+			const dateText = item.querySelector(":scope [class*=\"caYeGJ\"]")?.textContent ?? "";
+			const endDate = parseEndDate$1(dateText);
+			const titleElement = item.querySelector(":scope .accordion-header [class*=\"CoreText\"]");
+			return {
+				element: item,
+				dateText,
+				endDate,
+				timestamp: endDate ? endDate.getTime() : Infinity,
+				originalIndex,
+				title: titleElement?.textContent?.trim() ?? ""
+			};
+		});
+		itemsWithDates.sort((a, b) => a.timestamp - b.timestamp);
+		return itemsWithDates;
+	}
+	function createMasterFilter(savedState) {
+		const masterFilterDiv = document.createElement("div");
+		masterFilterDiv.className = "drops-master-filter";
+		masterFilterDiv.innerHTML = `
+            <input type="checkbox" id="drops-master-filter" class="drops-filter-checkbox" ${savedState?.masterEnabled === false ? "" : "checked"}>
             <label for="drops-master-filter">Enable Filtering (uncheck to show all)</label>
         `;
-			container.insertBefore(masterFilterDiv, firstItem);
-			const masterCheckbox = document.getElementById("drops-master-filter");
-			if (!masterCheckbox) return false;
-			itemsWithDates.forEach((item, newIndex) => {
-				const button = item.element.querySelector(".accordion-header button");
-				if (button) {
-					const savedChecked = savedState?.items?.[item.title];
-					const isChecked = savedChecked !== void 0 ? savedChecked : true;
-					const checkbox = document.createElement("input");
-					checkbox.type = "checkbox";
-					checkbox.className = "drops-filter-checkbox";
-					checkbox.id = `drop-filter-${newIndex}`;
-					checkbox.checked = isChecked;
-					checkbox.addEventListener("change", (e) => {
-						e.stopPropagation();
-						if (masterCheckbox.checked) item.element.classList.toggle("drops-hidden", !checkbox.checked);
-						setTimeout(() => {
-							saveFilterState();
-						}, 100);
-					});
-					checkbox.addEventListener("click", (e) => {
-						e.stopPropagation();
-					});
-					if (masterCheckbox.checked && !isChecked) item.element.classList.add("drops-hidden");
-					if (button.firstChild) button.insertBefore(checkbox, button.firstChild);
-					else button.appendChild(checkbox);
-				}
-				container.appendChild(item.element);
-			});
-			masterCheckbox.addEventListener("change", () => {
-				itemsWithDates.forEach((item, index) => {
-					const checkbox = document.getElementById(`drop-filter-${index}`);
-					if (masterCheckbox.checked) item.element.classList.toggle("drops-hidden", checkbox ? !checkbox.checked : false);
-					else item.element.classList.remove("drops-hidden");
-				});
-				setTimeout(() => {
-					saveFilterState();
-				}, 100);
-			});
-			if (closedDropItems.length > 0) {
-				closedDropItems.forEach((item) => {
-					item.classList.add("drops-item-hidden");
-				});
-				if (closedDropsHeading !== null && closedDropsHeading !== void 0) closedDropsHeading.classList.add("drops-item-hidden");
+		return masterFilterDiv.querySelector("#drops-master-filter");
+	}
+	function scheduleSaveFilterState() {
+		setTimeout(() => {
+			saveFilterState();
+		}, SAVE_DEBOUNCE_MS);
+	}
+	function insertCheckbox(button, checkbox) {
+		if (button.firstChild) button.insertBefore(checkbox, button.firstChild);
+		else button.append(checkbox);
+	}
+	function attachItemCheckbox(item, newIndex, masterCheckbox, savedState) {
+		const button = item.element.querySelector(":scope .accordion-header button");
+		if (!button) return;
+		const isChecked = savedState?.items?.[item.title] ?? true;
+		const checkbox = document.createElement("input");
+		checkbox.type = "checkbox";
+		checkbox.className = "drops-filter-checkbox";
+		checkbox.id = `drop-filter-${newIndex}`;
+		checkbox.checked = isChecked;
+		checkbox.addEventListener("change", (event) => {
+			event.stopPropagation();
+			if (masterCheckbox.checked) item.element.classList.toggle("drops-hidden", !checkbox.checked);
+			scheduleSaveFilterState();
+		});
+		checkbox.addEventListener("click", (event) => {
+			event.stopPropagation();
+		});
+		if (!isChecked && masterCheckbox.checked) item.element.classList.add("drops-hidden");
+		insertCheckbox(button, checkbox);
+	}
+	function bindMasterFilterChange(masterCheckbox, itemsWithDates) {
+		masterCheckbox.addEventListener("change", () => {
+			for (const [index, item] of itemsWithDates.entries()) {
+				const checkbox = document.querySelector(`#drop-filter-${index}`);
+				if (masterCheckbox.checked) item.element.classList.toggle("drops-hidden", checkbox ? !checkbox.checked : false);
+				else item.element.classList.remove("drops-hidden");
 			}
-			initialized = true;
-			return true;
+			scheduleSaveFilterState();
+		});
+	}
+	function hideClosedCampaigns(closedDropItems, closedHeading) {
+		if (closedDropItems.length === 0) return;
+		for (const item of closedDropItems) item.classList.add("drops-item-hidden");
+		closedHeading?.classList.add("drops-item-hidden");
+	}
+	async function didProcessDrops(isInitialized) {
+		if (isInitialized) return true;
+		const dropItemElements = collectDropItemElements();
+		if (dropItemElements.length === 0) return false;
+		const headings = findCampaignHeadings();
+		if (!headings) return false;
+		const { openDropItems, closedDropItems } = splitOpenAndClosedItems(dropItemElements, headings);
+		if (openDropItems.length === 0) return false;
+		const firstItem = openDropItems[0];
+		if (!firstItem) return false;
+		const container = firstItem.parentElement;
+		if (!container) return false;
+		addStyles$1();
+		const savedState = await loadFilterState();
+		const itemsWithDates = buildSortedDropItems(openDropItems);
+		const masterCheckbox = createMasterFilter(savedState);
+		if (!masterCheckbox) return false;
+		const masterFilterDiv = masterCheckbox.parentElement;
+		if (!masterFilterDiv) return false;
+		firstItem.before(masterFilterDiv);
+		for (const [newIndex, item] of itemsWithDates.entries()) {
+			attachItemCheckbox(item, newIndex, masterCheckbox, savedState);
+			container.append(item.element);
 		}
+		bindMasterFilterChange(masterCheckbox, itemsWithDates);
+		hideClosedCampaigns(closedDropItems, headings.closedHeading);
+		return true;
+	}
+	function hasAccordionInMutation(mutation) {
+		return [...mutation.addedNodes].some((node) => {
+			if (node.nodeType !== Node.ELEMENT_NODE) return false;
+			const element = node;
+			return element.classList?.contains("accordion-header") || Boolean(element.querySelector?.(":scope .accordion-header"));
+		});
+	}
+	function initializeCampaigns() {
+		let isInitialized = false;
+		const runProcess = () => {
+			didProcessDrops(isInitialized).then((didSucceed) => {
+				if (!didSucceed) return;
+				isInitialized = true;
+				observer.disconnect();
+			});
+		};
 		const observer = new MutationObserver((mutations) => {
-			for (const mutation of mutations) if (mutation.addedNodes.length > 0) {
-				if (Array.from(mutation.addedNodes).some((node) => {
-					return node.nodeType === 1 && (node.classList?.contains("accordion-header") || node.querySelector?.(".accordion-header"));
-				})) {
-					setTimeout(() => {
-						processDrops().then((success) => {
-							if (success) observer.disconnect();
-						});
-					}, 500);
-					break;
-				}
+			for (const mutation of mutations) {
+				if (mutation.addedNodes.length === 0) continue;
+				if (!hasAccordionInMutation(mutation)) continue;
+				setTimeout(runProcess, MUTATION_PROCESS_DELAY_MS);
+				break;
 			}
 		});
 		observer.observe(document.body, {
 			childList: true,
 			subtree: true
 		});
-		setTimeout(() => {
-			processDrops().then((success) => {
-				if (success) observer.disconnect();
-			});
-		}, 3e3);
+		setTimeout(runProcess, INITIAL_PROCESS_DELAY_MS);
 	}
+	var MS_PER_SECOND = 1e3;
+	var SECONDS_PER_MINUTE = 60;
+	var MINUTES_PER_HOUR = 60;
+	var HOURS_PER_DAY = 24;
+	var DAYS_PER_MONTH_APPROX = 30;
+	var MS_PER_DAY = MS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR * HOURS_PER_DAY;
+	var MS_PER_MONTH_APPROX = MS_PER_DAY * DAYS_PER_MONTH_APPROX;
+	var HOUR_12 = 12;
+	var MONTH_ABBREVIATION_LENGTH = 3;
+	var MONTHS_DIFF_THRESHOLD = 3;
+	var MONTHS_DIFF_YEAR_BOUNDARY = 6;
+	var EARLY_YEAR_MONTH_MAX = 3;
+	var LATE_YEAR_MONTH_MIN = 8;
+	var RECENT_DAYS_THRESHOLD = 7;
+	var MONTH_INDEX = {
+		jan: 0,
+		feb: 1,
+		mar: 2,
+		apr: 3,
+		may: 4,
+		jun: 5,
+		jul: 6,
+		aug: 7,
+		sep: 8,
+		oct: 9,
+		nov: 10,
+		dec: 11
+	};
+	var TZ_OFFSET_HOURS = {
+		PST: 8,
+		PDT: 7,
+		EST: 5,
+		EDT: 4,
+		MST: 7,
+		MDT: 6,
+		CST: 6,
+		CDT: 5,
+		AKST: 9,
+		AKDT: 8,
+		HST: 10
+	};
+	var END_DATE_PATTERN = /^([A-Z]{3}), ([A-Z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM) ([A-Z]{2,4})$/i;
 	function addStyles() {
-		if (document.getElementById("drops-inventory-styles")) return;
+		if (document.querySelector("#drops-inventory-styles")) return;
 		const style = document.createElement("style");
 		style.id = "drops-inventory-styles";
 		style.textContent = `
@@ -256,22 +346,19 @@
       display: none !important;
     }
   `;
-		document.head.appendChild(style);
+		document.head.append(style);
+	}
+	function hasCheckmarkPath(button) {
+		const svg = button.querySelector(":scope svg");
+		if (!svg) return false;
+		const path = svg.querySelector(":scope path[fill-rule=\"evenodd\"]");
+		if (!path) return false;
+		return (path.getAttribute("d") || "").includes("M19.707 8.207");
 	}
 	function isAccountConnected(rewardItem) {
-		const tooltip = rewardItem.querySelector(".ScAttachedTooltip-sc-1ems1ts-1.lmsRqx.tw-tooltip");
-		if (tooltip && tooltip.textContent?.trim() === "Game account connected") return true;
-		const button = rewardItem.querySelector("button[aria-label=\"Awarded Drop Connect Button\"][disabled]");
-		if (button) {
-			const svg = button.querySelector("svg");
-			if (svg) {
-				const path = svg.querySelector("path[fill-rule=\"evenodd\"]");
-				if (path) {
-					if ((path.getAttribute("d") || "").includes("M19.707 8.207")) return true;
-				}
-			}
-		}
-		return false;
+		if (rewardItem.querySelector(":scope .ScAttachedTooltip-sc-1ems1ts-1.lmsRqx.tw-tooltip")?.textContent?.trim() === "Game account connected") return true;
+		const button = rewardItem.querySelector(":scope button[aria-label=\"Awarded Drop Connect Button\"][disabled]");
+		return Boolean(button && hasCheckmarkPath(button));
 	}
 	function hideConnectedRewards() {
 		addStyles();
@@ -279,7 +366,7 @@
 		let hiddenCount = 0;
 		allContainers.forEach((container) => {
 			const element = container;
-			if (!element.querySelector(".inventory-drop-image")) return;
+			if (!element.querySelector(":scope .inventory-drop-image")) return;
 			if (isAccountConnected(element)) {
 				element.classList.add("drops-inventory-hidden");
 				hiddenCount++;
@@ -287,59 +374,62 @@
 		});
 		if (hiddenCount > 0) console.log(`[Twitch Drops] Hidden ${hiddenCount} reward(s) with connected accounts`);
 	}
+	function to24Hour(hourText, ampm) {
+		let hour24 = Math.trunc(Number(hourText));
+		const period = ampm.toUpperCase();
+		if (hour24 !== HOUR_12 && period === "PM") hour24 += HOUR_12;
+		else if (hour24 === HOUR_12 && period === "AM") hour24 = 0;
+		return hour24;
+	}
+	function parseEndDateParts(dateText) {
+		const match = END_DATE_PATTERN.exec(dateText);
+		if (!match) return void 0;
+		const monthName = match[2];
+		const dayText = match[3];
+		const hourText = match[4];
+		const minuteText = match[5];
+		const ampm = match[6];
+		const timezone = match[7];
+		if (!monthName || !dayText || !hourText || !minuteText || !ampm || !timezone) return;
+		const month = MONTH_INDEX[monthName.toLowerCase().slice(0, MONTH_ABBREVIATION_LENGTH)];
+		if (month === void 0) return void 0;
+		return {
+			month,
+			day: Math.trunc(Number(dayText)),
+			hour24: to24Hour(hourText, ampm),
+			minute: Math.trunc(Number(minuteText)),
+			timezone
+		};
+	}
+	function buildUtcDate(year, parts, offsetHours) {
+		const date = new Date(Date.UTC(year, parts.month, parts.day, parts.hour24, parts.minute));
+		date.setUTCHours(date.getUTCHours() + offsetHours);
+		return date;
+	}
+	function shouldUsePreviousYear(date, now, currentMonth, month) {
+		const monthsDiff = (date.getTime() - now.getTime()) / MS_PER_MONTH_APPROX;
+		if (monthsDiff <= MONTHS_DIFF_THRESHOLD) return false;
+		return monthsDiff > MONTHS_DIFF_YEAR_BOUNDARY || currentMonth < EARLY_YEAR_MONTH_MAX && month > LATE_YEAR_MONTH_MIN;
+	}
+	function resolveYearAdjustedDate(parts, offsetHours) {
+		const currentYear = new Date().getFullYear();
+		const currentMonth = new Date().getMonth();
+		const now = new Date();
+		let date = buildUtcDate(currentYear, parts, offsetHours);
+		if (!shouldUsePreviousYear(date, now, currentMonth, parts.month)) return date;
+		const adjustedDate = buildUtcDate(currentYear - 1, parts, offsetHours);
+		const recentThresholdMs = RECENT_DAYS_THRESHOLD * MS_PER_DAY;
+		if (adjustedDate.getTime() <= now.getTime() + recentThresholdMs) date = adjustedDate;
+		return date;
+	}
 	function parseEndDate(dateText) {
 		try {
-			const match = dateText.match(/(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)\s+(\w+)/i);
-			if (match) {
-				const [, , monthName, day, hour, minute, ampm, tz] = match;
-				if (!monthName || !day || !hour || !minute || !ampm || !tz) return null;
-				const month = {
-					jan: 0,
-					feb: 1,
-					mar: 2,
-					apr: 3,
-					may: 4,
-					jun: 5,
-					jul: 6,
-					aug: 7,
-					sep: 8,
-					oct: 9,
-					nov: 10,
-					dec: 11
-				}[monthName.toLowerCase().substring(0, 3)];
-				if (month !== void 0) {
-					let hour24 = parseInt(hour, 10);
-					if (ampm.toUpperCase() === "PM" && hour24 !== 12) hour24 += 12;
-					else if (ampm.toUpperCase() === "AM" && hour24 === 12) hour24 = 0;
-					const currentYear = new Date().getFullYear();
-					const currentMonth = new Date().getMonth();
-					let date = new Date(Date.UTC(currentYear, month, parseInt(day, 10), hour24, parseInt(minute, 10)));
-					const offset = {
-						PST: 8,
-						PDT: 7,
-						EST: 5,
-						EDT: 4,
-						MST: 7,
-						MDT: 6,
-						CST: 6,
-						CDT: 5,
-						AKST: 9,
-						AKDT: 8,
-						HST: 10
-					}[tz.toUpperCase()] ?? 0;
-					date.setUTCHours(date.getUTCHours() + offset);
-					const now = new Date();
-					const monthsDiff = (date.getTime() - now.getTime()) / (1e3 * 60 * 60 * 24 * 30);
-					if (monthsDiff > 3 && (monthsDiff > 6 || currentMonth < 3 && month > 8)) {
-						const adjustedDate = new Date(Date.UTC(currentYear - 1, month, parseInt(day, 10), hour24, parseInt(minute, 10)));
-						adjustedDate.setUTCHours(adjustedDate.getUTCHours() + offset);
-						if (adjustedDate.getTime() <= now.getTime() + 10080 * 60 * 1e3) date = adjustedDate;
-					}
-					return date;
-				}
-			}
-		} catch (e) {}
-		return null;
+			const parts = parseEndDateParts(dateText);
+			if (!parts) return void 0;
+			return resolveYearAdjustedDate(parts, TZ_OFFSET_HOURS[parts.timezone.toUpperCase()] ?? 0);
+		} catch {
+			return;
+		}
 	}
 	function isDateInPast(dateText) {
 		const endDate = parseEndDate(dateText);
@@ -352,28 +442,29 @@
 		let hiddenCount = 0;
 		campaignContainers.forEach((campaign) => {
 			const campaignElement = campaign;
-			const endDateSpan = campaignElement.querySelector("span.CoreText-sc-1txzju1-0.jPfhdt");
-			if (endDateSpan && endDateSpan.textContent) {
-				if (isDateInPast(endDateSpan.textContent.trim())) {
-					campaignElement.classList.add("drops-inventory-hidden");
-					hiddenCount++;
-				}
+			const dateText = campaignElement.querySelector(":scope span.CoreText-sc-1txzju1-0.jPfhdt")?.textContent?.trim();
+			if (!dateText) return;
+			if (isDateInPast(dateText)) {
+				campaignElement.classList.add("drops-inventory-hidden");
+				hiddenCount++;
 			}
 		});
 		if (hiddenCount > 0) console.log(`[Twitch Drops] Hidden ${hiddenCount} ended campaign(s)`);
+	}
+	function isClaimNowButton(button) {
+		if ("dropsClaimClicked" in button.dataset) return false;
+		if (button.disabled) return false;
+		if (!button.offsetParent) return false;
+		return button.textContent?.trim() === "Claim Now";
 	}
 	function clickClaimNowButtons() {
 		const allButtons = document.querySelectorAll("button");
 		let clickedCount = 0;
 		allButtons.forEach((button) => {
-			if (button.hasAttribute("data-drops-claim-clicked")) return;
-			if (button.textContent?.trim() === "Claim Now") {
-				if (button.offsetParent !== null && !button.disabled) {
-					button.setAttribute("data-drops-claim-clicked", "true");
-					button.click();
-					clickedCount++;
-				}
-			}
+			if (!isClaimNowButton(button)) return;
+			button.dataset.dropsClaimClicked = "true";
+			button.click();
+			clickedCount++;
 		});
 		if (clickedCount > 0) console.log(`[Twitch Drops] Clicked ${clickedCount} "Claim Now" button(s)`);
 	}
@@ -390,7 +481,7 @@
 			subtree: true
 		});
 	}
-	var url = window.location.href;
+	var url = location.href;
 	if (url.includes("/drops/campaigns")) initializeCampaigns();
 	if (url.includes("/drops/inventory")) initializeInventory();
 })();
