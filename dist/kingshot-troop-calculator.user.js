@@ -448,7 +448,7 @@
 		};
 		const best = {
 			chunk: void 0,
-			score: Infinity,
+			score: Number.POSITIVE_INFINITY,
 			tieArcher: -1
 		};
 		const ratios = {

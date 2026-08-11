@@ -240,7 +240,7 @@ function buildSortedDropItems(openDropItems: HTMLElement[]): DropItem[] {
         element: item,
         dateText,
         endDate,
-        timestamp: endDate ? endDate.getTime() : Infinity,
+        timestamp: endDate ? endDate.getTime() : Number.POSITIVE_INFINITY,
         originalIndex,
         title: titleElement?.textContent?.trim() ?? '',
       };

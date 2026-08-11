@@ -7,6 +7,7 @@ This userscript adds price per unit information to product pages on PetSmart.com
 [Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/price-per-unit.user.js)
 
 *No userscript manager yet? Install [Violentmonkey](https://violentmonkey.github.io/get-it/) first, then use the link above.*
+*Recommended browser: [Zen](<https://zen-browser.app/>) or [Firefox](https://www.firefox.com)*
 
 ## Features
 

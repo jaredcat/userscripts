@@ -4,10 +4,12 @@
     "alienwarearena",
     "appselect",
     "classid",
+    "cooldown",
     "Epix",
     "friendlinks",
     "gamescom",
     "maketrade",
+    "Megumin",
     "newmodal",
     "offerheader",
     "pagecontent",
@@ -16,8 +18,22 @@
     "tampermonkey",
     "tradeoffer",
     "TVDB",
+    "unequip",
     "userscript",
     "userscripts",
     "violentmonkey"
-  ]
+  ],
+  "biome.enabled": false,
+  "eslint.run": "onType",
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "sonarlint.rules": {
+    "typescript:S7773": {
+      "level": "on"
+    }
+  }
 }

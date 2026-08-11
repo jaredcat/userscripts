@@ -52,6 +52,20 @@ export default [
       'prefer-promise-reject-errors': 'error',
       // Userscript / browser DOM conventions
       'unicorn/filename-case': 'off',
+      // Prefer Sonar when Unicorn conflicts (e.g. Number.NaN vs NaN).
+      'unicorn/prefer-global-number-constants': 'off',
+      'unicorn/prefer-number-properties': [
+        'error',
+        { checkNaN: true, checkInfinity: true },
+      ],
+    },
+  },
+  {
+    // Artifact effect tables and ARP math are inherently numeric game data;
+    // naming every tier bonus / percent / slot index adds noise without clarity.
+    files: ['src/alienware-arena-filters/artifacts/**/*.ts'],
+    rules: {
+      'no-magic-numbers': 'off',
     },
   },
   {

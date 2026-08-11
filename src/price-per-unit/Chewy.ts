@@ -359,7 +359,7 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
     await this.ensurePlpProducts();
     for (const product of this.plpProducts) {
       const ppu = this.parsePpu(product.ppu);
-      apiPpuById.set(product.linkId, ppu ?? Infinity);
+      apiPpuById.set(product.linkId, ppu ?? Number.POSITIVE_INFINITY);
     }
 
     const getPpu = (card: HTMLElement): number => {
@@ -368,7 +368,9 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
         const fromApi = apiPpuById.get(id);
         if (fromApi !== undefined) return fromApi;
       }
-      return this.parsePpu(card.dataset.pricePerUnit) ?? Infinity;
+      return (
+        this.parsePpu(card.dataset.pricePerUnit) ?? Number.POSITIVE_INFINITY
+      );
     };
 
     cards.sort((a, b) => {

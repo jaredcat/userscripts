@@ -657,7 +657,7 @@ function bestCompositionForMarchTotal(
 
   const best: CompositionBest = {
     chunk: undefined,
-    score: Infinity,
+    score: Number.POSITIVE_INFINITY,
     tieArcher: -1,
   };
   const ratios: CompositionRatios = { T, ti, tc, ta };
