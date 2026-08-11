@@ -1,6 +1,6 @@
 # Twitch Drops Page Tools
 
-Sort Twitch drops by end date and add filtering checkboxes on campaigns and inventory pages.
+Sort Twitch drops by end date and add filtering checkboxes on the campaigns page. On inventory, auto-claim ready drops and hide ended in-progress campaigns. Runs on Twitch SPA navigations, so you do not need a full reload after clicking into Drops.
 
 ## Install
 

@@ -1,14 +1,13 @@
 // ==UserScript==
 // @name         Twitch Drops Page Tools
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.0.3
+// @version      1.1.4
 // @author       jaredcat
-// @description  Sort Twitch drops by end date and add filtering checkboxes
+// @description  Sort Twitch drops by end date, auto-claim inventory, and hide ended in-progress campaigns
 // @license      AGPL-3.0-or-later
 // @downloadURL  https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/twitch-drops.user.js
 // @updateURL    https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/twitch-drops.user.js
-// @match        *://www.twitch.tv/drops/campaigns*
-// @match        *://www.twitch.tv/drops/inventory*
+// @match        *://www.twitch.tv/*
 // @grant        GM.getValue
 // @grant        GM.setValue
 // ==/UserScript==
@@ -36,6 +35,7 @@
 		Dec: 11
 	};
 	var END_DATE_PATTERN$1 = /([A-Za-z]{3}), ([A-Za-z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM)/;
+	var DATE_STAMP_PATTERN = /^[A-Za-z]{3}, [A-Za-z]{3} \d{1,2}, \d{1,2}:\d{2} (?:AM|PM)(?: [A-Z]{2,4})?$/;
 	async function saveFilterState() {
 		const state = {
 			masterEnabled: document.querySelector("#drops-master-filter")?.checked ?? true,
@@ -122,13 +122,28 @@
         `;
 		document.head.append(style);
 	}
+	function isDateRangeText(text) {
+		const parts = text.split(" - ");
+		if (parts.length !== DATE_PARTS_MINIMUM) return false;
+		const start = parts[0];
+		const end = parts[1];
+		return Boolean(start && end && DATE_STAMP_PATTERN.test(start) && DATE_STAMP_PATTERN.test(end));
+	}
+	function findDateElement(root) {
+		for (const element of root.querySelectorAll("div, span, p")) {
+			if (element.children.length > 0) continue;
+			if (isDateRangeText(element.textContent?.trim() ?? "")) return element;
+		}
+	}
 	function collectDropItemElements() {
 		const dropItemElements = [];
-		document.querySelectorAll("div").forEach((div) => {
-			if (!div.querySelector(":scope .accordion-header")) return;
-			if (!div.querySelector(":scope [class*=\"caYeGJ\"]")) return;
-			if (div.querySelector(":scope .accordion-header")?.parentElement === div) dropItemElements.push(div);
-		});
+		for (const header of document.querySelectorAll(".accordion-header")) {
+			const item = header.parentElement;
+			if (!item) continue;
+			if (item.querySelector(":scope > .accordion-header") !== header) continue;
+			if (!findDateElement(header)) continue;
+			dropItemElements.push(item);
+		}
 		return dropItemElements;
 	}
 	function findCampaignHeadings() {
@@ -169,7 +184,7 @@
 	}
 	function buildSortedDropItems(openDropItems) {
 		const itemsWithDates = openDropItems.map((item, originalIndex) => {
-			const dateText = item.querySelector(":scope [class*=\"caYeGJ\"]")?.textContent ?? "";
+			const dateText = findDateElement(item)?.textContent?.trim() ?? "";
 			const endDate = parseEndDate$1(dateText);
 			const titleElement = item.querySelector(":scope .accordion-header [class*=\"CoreText\"]");
 			return {
@@ -237,8 +252,12 @@
 		for (const item of closedDropItems) item.classList.add("drops-item-hidden");
 		closedHeading?.classList.add("drops-item-hidden");
 	}
+	function isCampaignsPath() {
+		return location.pathname.includes("/drops/campaigns");
+	}
 	async function didProcessDrops(isInitialized) {
 		if (isInitialized) return true;
+		if (!isCampaignsPath()) return false;
 		const dropItemElements = collectDropItemElements();
 		if (dropItemElements.length === 0) return false;
 		const headings = findCampaignHeadings();
@@ -274,9 +293,12 @@
 	}
 	function initializeCampaigns() {
 		let isInitialized = false;
+		let isStopped = false;
+		let mutationTimer;
 		const runProcess = () => {
+			if (isStopped) return;
 			didProcessDrops(isInitialized).then((didSucceed) => {
-				if (!didSucceed) return;
+				if (isStopped || !didSucceed) return;
 				isInitialized = true;
 				observer.disconnect();
 			});
@@ -285,7 +307,7 @@
 			for (const mutation of mutations) {
 				if (mutation.addedNodes.length === 0) continue;
 				if (!hasAccordionInMutation(mutation)) continue;
-				setTimeout(runProcess, MUTATION_PROCESS_DELAY_MS);
+				mutationTimer = setTimeout(runProcess, MUTATION_PROCESS_DELAY_MS);
 				break;
 			}
 		});
@@ -293,7 +315,13 @@
 			childList: true,
 			subtree: true
 		});
-		setTimeout(runProcess, INITIAL_PROCESS_DELAY_MS);
+		const initialTimer = setTimeout(runProcess, INITIAL_PROCESS_DELAY_MS);
+		return () => {
+			isStopped = true;
+			observer.disconnect();
+			clearTimeout(mutationTimer);
+			clearTimeout(initialTimer);
+		};
 	}
 	var MS_PER_SECOND = 1e3;
 	var SECONDS_PER_MINUTE = 60;
@@ -309,6 +337,12 @@
 	var EARLY_YEAR_MONTH_MAX = 3;
 	var LATE_YEAR_MONTH_MIN = 8;
 	var RECENT_DAYS_THRESHOLD = 7;
+	var MUTATION_DEBOUNCE_MS = 500;
+	var LOAD_MORE_COOLDOWN_MS = 1e3;
+	var HIDDEN_CLASS = "drops-inventory-hidden";
+	var CLAIM_NOW_LABEL = "Claim Now";
+	var LOAD_MORE_LABEL = "Load More";
+	var NO_LONGER_AVAILABLE_TEXT = "This reward is no longer available";
 	var MONTH_INDEX = {
 		jan: 0,
 		feb: 1,
@@ -337,42 +371,46 @@
 		HST: 10
 	};
 	var END_DATE_PATTERN = /^([A-Z]{3}), ([A-Z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM) ([A-Z]{2,4})$/i;
+	var loadMoreState = { lastClickMs: 0 };
 	function addStyles() {
 		if (document.querySelector("#drops-inventory-styles")) return;
 		const style = document.createElement("style");
 		style.id = "drops-inventory-styles";
 		style.textContent = `
-    .drops-inventory-hidden {
+    .${HIDDEN_CLASS} {
       display: none !important;
     }
   `;
 		document.head.append(style);
 	}
-	function hasCheckmarkPath(button) {
-		const svg = button.querySelector(":scope svg");
-		if (!svg) return false;
-		const path = svg.querySelector(":scope path[fill-rule=\"evenodd\"]");
-		if (!path) return false;
-		return (path.getAttribute("d") || "").includes("M19.707 8.207");
+	function debounce(callback, delayMs) {
+		let timer;
+		return () => {
+			if (timer !== void 0) clearTimeout(timer);
+			timer = setTimeout(() => {
+				timer = void 0;
+				callback();
+			}, delayMs);
+		};
 	}
-	function isAccountConnected(rewardItem) {
-		if (rewardItem.querySelector(":scope .ScAttachedTooltip-sc-1ems1ts-1.lmsRqx.tw-tooltip")?.textContent?.trim() === "Game account connected") return true;
-		const button = rewardItem.querySelector(":scope button[aria-label=\"Awarded Drop Connect Button\"][disabled]");
-		return Boolean(button && hasCheckmarkPath(button));
+	function didHideElement(element) {
+		if (element.classList.contains(HIDDEN_CLASS)) return false;
+		element.classList.add(HIDDEN_CLASS);
+		return true;
 	}
-	function hideConnectedRewards() {
-		addStyles();
-		const allContainers = document.querySelectorAll(".Layout-sc-1xcs6mc-0.fHdBNk");
-		let hiddenCount = 0;
-		allContainers.forEach((container) => {
-			const element = container;
-			if (!element.querySelector(":scope .inventory-drop-image")) return;
-			if (isAccountConnected(element)) {
-				element.classList.add("drops-inventory-hidden");
-				hiddenCount++;
-			}
-		});
-		if (hiddenCount > 0) console.log(`[Twitch Drops] Hidden ${hiddenCount} reward(s) with connected accounts`);
+	function isVisiblyHidden(element) {
+		return Boolean(element.closest(`.${HIDDEN_CLASS}`));
+	}
+	function isInventoryBoundary(node) {
+		return node.classList.contains("inventory-page") || node.classList.contains("inventory-max-width");
+	}
+	function closestCardWithDropImage(start) {
+		let node = start.parentElement;
+		while (node) {
+			if (isInventoryBoundary(node)) return void 0;
+			if (node.querySelector(":scope .inventory-drop-image")) return node;
+			node = node.parentElement;
+		}
 	}
 	function to24Hour(hourText, ampm) {
 		let hour24 = Math.trunc(Number(hourText));
@@ -436,52 +474,138 @@
 		if (!endDate) return false;
 		return endDate < new Date();
 	}
+	function findEndDateText(root) {
+		for (const element of root.querySelectorAll("span, p")) {
+			const text = element.textContent?.trim() ?? "";
+			if (END_DATE_PATTERN.test(text)) return text;
+		}
+	}
+	function isEndedCampaign(card, info) {
+		if (card.textContent?.includes(NO_LONGER_AVAILABLE_TEXT)) return true;
+		const dateText = findEndDateText(info);
+		return Boolean(dateText && isDateInPast(dateText));
+	}
 	function hideEndedRewards() {
 		addStyles();
-		const campaignContainers = document.querySelectorAll(".Layout-sc-1xcs6mc-0.jtROCr");
 		let hiddenCount = 0;
-		campaignContainers.forEach((campaign) => {
-			const campaignElement = campaign;
-			const dateText = campaignElement.querySelector(":scope span.CoreText-sc-1txzju1-0.jPfhdt")?.textContent?.trim();
-			if (!dateText) return;
-			if (isDateInPast(dateText)) {
-				campaignElement.classList.add("drops-inventory-hidden");
-				hiddenCount++;
-			}
-		});
+		const campaignInfos = document.querySelectorAll(".inventory-campaign-info");
+		for (const info of campaignInfos) {
+			const card = closestCardWithDropImage(info);
+			if (!card) continue;
+			if (!isEndedCampaign(card, info)) continue;
+			if (didHideElement(card)) hiddenCount++;
+		}
 		if (hiddenCount > 0) console.log(`[Twitch Drops] Hidden ${hiddenCount} ended campaign(s)`);
 	}
-	function isClaimNowButton(button) {
-		if ("dropsClaimClicked" in button.dataset) return false;
+	function isVisibleActionButton(button, label) {
 		if (button.disabled) return false;
 		if (!button.offsetParent) return false;
-		return button.textContent?.trim() === "Claim Now";
+		return button.textContent?.trim() === label;
 	}
 	function clickClaimNowButtons() {
-		const allButtons = document.querySelectorAll("button");
 		let clickedCount = 0;
-		allButtons.forEach((button) => {
-			if (!isClaimNowButton(button)) return;
+		for (const button of document.querySelectorAll("button")) {
+			if (!isVisibleActionButton(button, CLAIM_NOW_LABEL)) continue;
+			if ("dropsClaimClicked" in button.dataset) continue;
 			button.dataset.dropsClaimClicked = "true";
 			button.click();
 			clickedCount++;
-		});
+		}
 		if (clickedCount > 0) console.log(`[Twitch Drops] Clicked ${clickedCount} "Claim Now" button(s)`);
 	}
-	function initializeInventory() {
+	function hasClaimNowButton() {
+		for (const button of document.querySelectorAll("button")) if (isVisibleActionButton(button, CLAIM_NOW_LABEL)) return true;
+		return false;
+	}
+	function clickLoadMoreButton() {
+		if (!hasClaimNowButton()) return;
+		const now = Date.now();
+		if (now - loadMoreState.lastClickMs < LOAD_MORE_COOLDOWN_MS) return;
+		for (const button of document.querySelectorAll("button")) {
+			if (!isVisibleActionButton(button, LOAD_MORE_LABEL)) continue;
+			loadMoreState.lastClickMs = now;
+			button.click();
+			console.log("[Twitch Drops] Clicked \"Load More\"");
+			return;
+		}
+	}
+	function hideEmptyInProgressSection() {
+		const root = document.querySelector(".inventory-max-width");
+		if (!(root instanceof HTMLElement)) return;
+		const infos = root.querySelectorAll(".inventory-campaign-info");
+		if (infos.length === 0) return;
+		for (const info of infos) if (!isVisiblyHidden(info)) return;
+		didHideElement(root);
+	}
+	function isInventoryPath() {
+		return location.pathname.includes("/drops/inventory");
+	}
+	function processInventory() {
+		if (!isInventoryPath()) return;
+		clickLoadMoreButton();
 		clickClaimNowButtons();
-		hideConnectedRewards();
 		hideEndedRewards();
-		new MutationObserver(() => {
-			clickClaimNowButtons();
-			hideConnectedRewards();
-			hideEndedRewards();
-		}).observe(document.body, {
+		hideEmptyInProgressSection();
+	}
+	function initializeInventory() {
+		let isStopped = false;
+		const runProcess = debounce(() => {
+			if (isStopped) return;
+			processInventory();
+		}, MUTATION_DEBOUNCE_MS);
+		runProcess();
+		const observer = new MutationObserver(runProcess);
+		observer.observe(document.body, {
 			childList: true,
 			subtree: true
 		});
+		return () => {
+			isStopped = true;
+			observer.disconnect();
+		};
 	}
-	var url = location.href;
-	if (url.includes("/drops/campaigns")) initializeCampaigns();
-	if (url.includes("/drops/inventory")) initializeInventory();
+	function dropsRouteFromLocation() {
+		const { pathname } = location;
+		if (pathname.includes("/drops/campaigns")) return "campaigns";
+		if (pathname.includes("/drops/inventory")) return "inventory";
+	}
+	function watchLocation(onChange) {
+		let lastHref = location.href;
+		const notify = () => {
+			if (location.href === lastHref) return;
+			lastHref = location.href;
+			onChange();
+		};
+		addEventListener("popstate", notify);
+		const navigation = globalThis.navigation;
+		if (navigation) {
+			navigation.addEventListener("currententrychange", notify);
+			return;
+		}
+		const { pushState, replaceState } = history;
+		history.pushState = function(...stateArguments) {
+			Reflect.apply(pushState, history, stateArguments);
+			notify();
+		};
+		history.replaceState = function(...stateArguments) {
+			Reflect.apply(replaceState, history, stateArguments);
+			notify();
+		};
+	}
+	function start() {
+		let activeRoute;
+		let stopActive;
+		const syncRoute = () => {
+			const route = dropsRouteFromLocation();
+			if (route === activeRoute) return;
+			stopActive?.();
+			stopActive = void 0;
+			activeRoute = route;
+			if (route === "campaigns") stopActive = initializeCampaigns();
+			else if (route === "inventory") stopActive = initializeInventory();
+		};
+		watchLocation(syncRoute);
+		syncRoute();
+	}
+	start();
 })();

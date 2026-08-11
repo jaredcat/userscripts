@@ -39,6 +39,8 @@ const MONTH_INDEX: Record<string, number> = {
 };
 const END_DATE_PATTERN =
   /([A-Za-z]{3}), ([A-Za-z]{3}) (\d{1,2}), (\d{1,2}):(\d{2}) (AM|PM)/;
+const DATE_STAMP_PATTERN =
+  /^[A-Za-z]{3}, [A-Za-z]{3} \d{1,2}, \d{1,2}:\d{2} (?:AM|PM)(?: [A-Z]{2,4})?$/;
 
 async function saveFilterState(): Promise<void> {
   const masterCheckbox = document.querySelector('#drops-master-filter') as
@@ -154,20 +156,38 @@ function addStyles(): void {
   document.head.append(style);
 }
 
+function isDateRangeText(text: string): boolean {
+  const parts = text.split(' - ');
+  if (parts.length !== DATE_PARTS_MINIMUM) return false;
+  const start = parts[0];
+  const end = parts[1];
+  return Boolean(
+    start &&
+    end &&
+    DATE_STAMP_PATTERN.test(start) &&
+    DATE_STAMP_PATTERN.test(end),
+  );
+}
+
+function findDateElement(root: Element): Element | undefined {
+  for (const element of root.querySelectorAll('div, span, p')) {
+    if (element.children.length > 0) continue;
+    const text = element.textContent?.trim() ?? '';
+    if (isDateRangeText(text)) return element;
+  }
+  return undefined;
+}
+
 function collectDropItemElements(): HTMLElement[] {
   const dropItemElements: HTMLElement[] = [];
 
-  document.querySelectorAll('div').forEach((div) => {
-    if (!div.querySelector(':scope .accordion-header')) return;
-
-    const dateElement = div.querySelector(':scope [class*="caYeGJ"]');
-    if (!dateElement) return;
-
-    const accordionHeader = div.querySelector(':scope .accordion-header');
-    if (accordionHeader?.parentElement === div) {
-      dropItemElements.push(div as HTMLElement);
-    }
-  });
+  for (const header of document.querySelectorAll('.accordion-header')) {
+    const item = header.parentElement;
+    if (!item) continue;
+    if (item.querySelector(':scope > .accordion-header') !== header) continue;
+    if (!findDateElement(header)) continue;
+    dropItemElements.push(item);
+  }
 
   return dropItemElements;
 }
@@ -229,8 +249,8 @@ function splitOpenAndClosedItems(
 function buildSortedDropItems(openDropItems: HTMLElement[]): DropItem[] {
   const itemsWithDates: DropItem[] = openDropItems.map(
     (item, originalIndex) => {
-      const dateElement = item.querySelector(':scope [class*="caYeGJ"]');
-      const dateText = dateElement?.textContent ?? '';
+      const dateElement = findDateElement(item);
+      const dateText = dateElement?.textContent?.trim() ?? '';
       const endDate = parseEndDate(dateText);
       const titleElement = item.querySelector(
         ':scope .accordion-header [class*="CoreText"]',
@@ -350,8 +370,13 @@ function hideClosedCampaigns(
   closedHeading?.classList.add('drops-item-hidden');
 }
 
+function isCampaignsPath(): boolean {
+  return location.pathname.includes('/drops/campaigns');
+}
+
 async function didProcessDrops(isInitialized: boolean): Promise<boolean> {
   if (isInitialized) return true;
+  if (!isCampaignsPath()) return false;
 
   const dropItemElements = collectDropItemElements();
   if (dropItemElements.length === 0) return false;
@@ -401,12 +426,15 @@ function hasAccordionInMutation(mutation: MutationRecord): boolean {
   });
 }
 
-export function initializeCampaigns(): void {
+export function initializeCampaigns(): () => void {
   let isInitialized = false;
+  let isStopped = false;
+  let mutationTimer: ReturnType<typeof setTimeout> | undefined;
 
   const runProcess = (): void => {
+    if (isStopped) return;
     void didProcessDrops(isInitialized).then((didSucceed) => {
-      if (!didSucceed) {
+      if (isStopped || !didSucceed) {
         return;
       }
 
@@ -420,11 +448,18 @@ export function initializeCampaigns(): void {
       if (mutation.addedNodes.length === 0) continue;
       if (!hasAccordionInMutation(mutation)) continue;
 
-      setTimeout(runProcess, MUTATION_PROCESS_DELAY_MS);
+      mutationTimer = setTimeout(runProcess, MUTATION_PROCESS_DELAY_MS);
       break;
     }
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
-  setTimeout(runProcess, INITIAL_PROCESS_DELAY_MS);
+  const initialTimer = setTimeout(runProcess, INITIAL_PROCESS_DELAY_MS);
+
+  return () => {
+    isStopped = true;
+    observer.disconnect();
+    clearTimeout(mutationTimer);
+    clearTimeout(initialTimer);
+  };
 }

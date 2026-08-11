@@ -13,6 +13,12 @@ const MONTHS_DIFF_YEAR_BOUNDARY = 6;
 const EARLY_YEAR_MONTH_MAX = 3;
 const LATE_YEAR_MONTH_MIN = 8;
 const RECENT_DAYS_THRESHOLD = 7;
+const MUTATION_DEBOUNCE_MS = 500;
+const LOAD_MORE_COOLDOWN_MS = 1000;
+const HIDDEN_CLASS = 'drops-inventory-hidden';
+const CLAIM_NOW_LABEL = 'Claim Now';
+const LOAD_MORE_LABEL = 'Load More';
+const NO_LONGER_AVAILABLE_TEXT = 'This reward is no longer available';
 const MONTH_INDEX: Record<string, number> = {
   jan: 0,
   feb: 1,
@@ -52,69 +58,61 @@ interface ParsedEndDateParts {
   timezone: string;
 }
 
+const loadMoreState = { lastClickMs: 0 };
+
 function addStyles(): void {
   if (document.querySelector('#drops-inventory-styles')) return;
 
   const style = document.createElement('style');
   style.id = 'drops-inventory-styles';
   style.textContent = `
-    .drops-inventory-hidden {
+    .${HIDDEN_CLASS} {
       display: none !important;
     }
   `;
   document.head.append(style);
 }
 
-function hasCheckmarkPath(button: Element): boolean {
-  const svg = button.querySelector(':scope svg');
-  if (!svg) return false;
-
-  const path = svg.querySelector(':scope path[fill-rule="evenodd"]');
-  if (!path) return false;
-
-  const pathD = path.getAttribute('d') || '';
-  return pathD.includes('M19.707 8.207');
-}
-
-function isAccountConnected(rewardItem: HTMLElement): boolean {
-  const tooltip = rewardItem.querySelector(
-    ':scope .ScAttachedTooltip-sc-1ems1ts-1.lmsRqx.tw-tooltip',
-  );
-  if (tooltip?.textContent?.trim() === 'Game account connected') {
-    return true;
-  }
-
-  const button = rewardItem.querySelector(
-    ':scope button[aria-label="Awarded Drop Connect Button"][disabled]',
-  );
-  return Boolean(button && hasCheckmarkPath(button));
-}
-
-function hideConnectedRewards(): void {
-  addStyles();
-
-  const allContainers = document.querySelectorAll(
-    '.Layout-sc-1xcs6mc-0.fHdBNk',
-  );
-
-  let hiddenCount = 0;
-
-  allContainers.forEach((container) => {
-    const element = container as HTMLElement;
-    const dropImage = element.querySelector(':scope .inventory-drop-image');
-    if (!dropImage) return;
-
-    if (isAccountConnected(element)) {
-      element.classList.add('drops-inventory-hidden');
-      hiddenCount++;
+function debounce(callback: () => void, delayMs: number): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
     }
-  });
+    timer = setTimeout(() => {
+      timer = undefined;
+      callback();
+    }, delayMs);
+  };
+}
 
-  if (hiddenCount > 0) {
-    console.log(
-      `[Twitch Drops] Hidden ${hiddenCount} reward(s) with connected accounts`,
-    );
+function didHideElement(element: HTMLElement): boolean {
+  if (element.classList.contains(HIDDEN_CLASS)) return false;
+  element.classList.add(HIDDEN_CLASS);
+  return true;
+}
+
+function isVisiblyHidden(element: Element): boolean {
+  return Boolean(element.closest(`.${HIDDEN_CLASS}`));
+}
+
+function isInventoryBoundary(node: Element): boolean {
+  return (
+    node.classList.contains('inventory-page') ||
+    node.classList.contains('inventory-max-width')
+  );
+}
+
+function closestCardWithDropImage(start: Element): HTMLElement | undefined {
+  let node = start.parentElement;
+  while (node) {
+    if (isInventoryBoundary(node)) return undefined;
+    if (node.querySelector(':scope .inventory-drop-image')) {
+      return node;
+    }
+    node = node.parentElement;
   }
+  return undefined;
 }
 
 function to24Hour(hourText: string, ampm: string): number {
@@ -229,71 +227,128 @@ function isDateInPast(dateText: string): boolean {
   return endDate < new Date();
 }
 
+function findEndDateText(root: Element): string | undefined {
+  for (const element of root.querySelectorAll('span, p')) {
+    const text = element.textContent?.trim() ?? '';
+    if (END_DATE_PATTERN.test(text)) return text;
+  }
+  return undefined;
+}
+
+function isEndedCampaign(card: HTMLElement, info: Element): boolean {
+  if (card.textContent?.includes(NO_LONGER_AVAILABLE_TEXT)) return true;
+  const dateText = findEndDateText(info);
+  return Boolean(dateText && isDateInPast(dateText));
+}
+
 function hideEndedRewards(): void {
   addStyles();
 
-  const campaignContainers = document.querySelectorAll(
-    '.Layout-sc-1xcs6mc-0.jtROCr',
-  );
-
   let hiddenCount = 0;
+  const campaignInfos = document.querySelectorAll('.inventory-campaign-info');
 
-  campaignContainers.forEach((campaign) => {
-    const campaignElement = campaign as HTMLElement;
-    const endDateSpan = campaignElement.querySelector(
-      ':scope span.CoreText-sc-1txzju1-0.jPfhdt',
-    );
-    const dateText = endDateSpan?.textContent?.trim();
-    if (!dateText) return;
-
-    if (isDateInPast(dateText)) {
-      campaignElement.classList.add('drops-inventory-hidden');
+  for (const info of campaignInfos) {
+    const card = closestCardWithDropImage(info);
+    if (!card) continue;
+    if (!isEndedCampaign(card, info)) continue;
+    if (didHideElement(card)) {
       hiddenCount++;
     }
-  });
+  }
 
   if (hiddenCount > 0) {
     console.log(`[Twitch Drops] Hidden ${hiddenCount} ended campaign(s)`);
   }
 }
 
-function isClaimNowButton(button: HTMLButtonElement): boolean {
-  if ('dropsClaimClicked' in button.dataset) return false;
+function isVisibleActionButton(
+  button: HTMLButtonElement,
+  label: string,
+): boolean {
   if (button.disabled) return false;
   if (!button.offsetParent) return false;
-  return button.textContent?.trim() === 'Claim Now';
+  return button.textContent?.trim() === label;
 }
 
 function clickClaimNowButtons(): void {
-  const allButtons = document.querySelectorAll('button');
   let clickedCount = 0;
 
-  allButtons.forEach((button) => {
-    if (!isClaimNowButton(button)) return;
+  for (const button of document.querySelectorAll('button')) {
+    if (!isVisibleActionButton(button, CLAIM_NOW_LABEL)) continue;
+    if ('dropsClaimClicked' in button.dataset) continue;
 
     button.dataset.dropsClaimClicked = 'true';
     button.click();
     clickedCount++;
-  });
+  }
 
   if (clickedCount > 0) {
     console.log(`[Twitch Drops] Clicked ${clickedCount} "Claim Now" button(s)`);
   }
 }
 
-export function initializeInventory(): void {
+function hasClaimNowButton(): boolean {
+  for (const button of document.querySelectorAll('button')) {
+    if (isVisibleActionButton(button, CLAIM_NOW_LABEL)) return true;
+  }
+  return false;
+}
+
+function clickLoadMoreButton(): void {
+  if (!hasClaimNowButton()) return;
+
+  const now = Date.now();
+  if (now - loadMoreState.lastClickMs < LOAD_MORE_COOLDOWN_MS) return;
+
+  for (const button of document.querySelectorAll('button')) {
+    if (!isVisibleActionButton(button, LOAD_MORE_LABEL)) continue;
+    loadMoreState.lastClickMs = now;
+    button.click();
+    console.log('[Twitch Drops] Clicked "Load More"');
+    return;
+  }
+}
+
+function hideEmptyInProgressSection(): void {
+  const root = document.querySelector('.inventory-max-width');
+  if (!(root instanceof HTMLElement)) return;
+
+  const infos = root.querySelectorAll('.inventory-campaign-info');
+  if (infos.length === 0) return;
+  for (const info of infos) {
+    if (!isVisiblyHidden(info)) return;
+  }
+  didHideElement(root);
+}
+
+function isInventoryPath(): boolean {
+  return location.pathname.includes('/drops/inventory');
+}
+
+function processInventory(): void {
+  if (!isInventoryPath()) return;
+  clickLoadMoreButton();
   clickClaimNowButtons();
-  hideConnectedRewards();
   hideEndedRewards();
+  hideEmptyInProgressSection();
+}
 
-  const observer = new MutationObserver(() => {
-    clickClaimNowButtons();
-    hideConnectedRewards();
-    hideEndedRewards();
-  });
+export function initializeInventory(): () => void {
+  let isStopped = false;
+  const runProcess = debounce(() => {
+    if (isStopped) return;
+    processInventory();
+  }, MUTATION_DEBOUNCE_MS);
+  runProcess();
 
+  const observer = new MutationObserver(runProcess);
   observer.observe(document.body, {
     childList: true,
     subtree: true,
   });
+
+  return () => {
+    isStopped = true;
+    observer.disconnect();
+  };
 }
