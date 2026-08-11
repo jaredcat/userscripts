@@ -63,7 +63,7 @@ export default [
   {
     // Artifact effect tables and ARP math are inherently numeric game data;
     // naming every tier bonus / percent / slot index adds noise without clarity.
-    files: ['src/alienware-arena-filters/artifacts/**/*.ts'],
+    files: ['src/alienware-arena/artifacts/**/*.ts'],
     rules: {
       'no-magic-numbers': 'off',
     },

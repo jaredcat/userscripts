@@ -1,14 +1,7 @@
-Hide content, giveaways, and game vault items on Alienware Arena that are higher than your tier or no longer available.
+# Alienware Arena Filters (legacy URL)
 
-## Install
+Keeps the historical [`dist/alienware-arena-filters.user.js`](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/alienware-arena-filters.user.js) update URL working.
 
-[Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/alienware-arena-filters.user.js)
+Existing **Alienware Arena Filters** installs (v1.2.0) still check that file. The 2.0.0 payload is the [Toolkit](../alienware-arena/README.md) userscript, with `@updateURL` / `@downloadURL` rewritten to `dist/alienware-arena.user.js`. After that one update, the manager stores the new name and checks the Toolkit URL from then on.
 
-*No userscript manager yet? Install [Violentmonkey](https://violentmonkey.github.io/get-it/) first, then use the link above.*
-
-Click the gear in the top left to find the filter menu.
-
-TODO:
-
-* Quest/Steam/Twitch timers
-* Artifact timers
+New installs should use the [Toolkit install link](../alienware-arena/README.md#install).

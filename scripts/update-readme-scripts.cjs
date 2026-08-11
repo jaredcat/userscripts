@@ -1,7 +1,7 @@
 // Regenerates the "## Scripts" list in README.md from each src/<script>/meta.ts (name + description).
 // Invoked at the end of `pnpm build` via scripts/build-all.cjs.
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const MARKER_START = '<!-- scripts-list:start -->';
 const MARKER_END = '<!-- scripts-list:end -->';
@@ -15,18 +15,15 @@ const installUrl = (scriptDir) =>
  * @returns {{ name: string | null; description: string }}
  */
 function parseMeta(content) {
-  const nameMatch = content.match(/\bname:\s*['"]([^'"]+)['"]/);
-  let description = '';
-  const descSameLine = content.match(/\bdescription:\s*['"]([^'"]+)['"]/);
-  if (descSameLine) {
-    description = descSameLine[1];
-  } else {
-    const descNextLine = content.match(/\bdescription:\s*\n\s*['"]([^'"]+)['"]/);
-    if (descNextLine) description = descNextLine[1];
-  }
+  const nameMatch = new RegExp(/\bname:\s*['"]([^'"]+)['"]/).exec(content);
+  // `\s*` already matches newlines, so this covers both `description: '…'` and
+  // a quoted string on the following line.
+  const descriptionMatch = new RegExp(/\bdescription:\s*['"]([^'"]+)['"]/).exec(
+    content,
+  );
   return {
     name: nameMatch ? nameMatch[1] : null,
-    description: description || 'Userscript',
+    description: descriptionMatch?.[1] || 'Userscript',
   };
 }
 
@@ -55,7 +52,9 @@ function main() {
   for (const dir of dirs) {
     const metaPath = path.join(scriptsDir, dir, 'meta.ts');
     if (!fs.existsSync(metaPath)) continue;
-    const meta = parseMeta(fs.readFileSync(metaPath, 'utf8'));
+    const metaSource = fs.readFileSync(metaPath, 'utf8');
+    if (/export const isListedInReadme = false\b/.test(metaSource)) continue;
+    const meta = parseMeta(metaSource);
     const name = meta.name ?? dir;
     const readmeLink = `src/${dir}/README.md`;
     lines.push(
