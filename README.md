@@ -2,7 +2,7 @@
 
 A collection of userscripts for various websites, built with TypeScript.
 
-All scripts are targeted for [ViolentMonkey](https://violentmonkey.github.io/) browser extension.
+All scripts are targeted for [ViolentMonkey](https://violentmonkey.github.io/) browser extension and [Zen Browser](https://zen-browser.app/)
 
 ## Scripts
 
@@ -16,6 +16,8 @@ All scripts are targeted for [ViolentMonkey](https://violentmonkey.github.io/) b
 - **[TVDB Episode Input Automation](src/tvdb-episode-automation/README.md)** ([Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/tvdb-episode-automation.user.js)) — Automates episode input process on TVDB
 - **[Twitch Drops Page Tools](src/twitch-drops/README.md)** ([Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/twitch-drops.user.js)) — Sort Twitch drops by end date, auto-claim inventory, and hide ended in-progress campaigns
 <!-- scripts-list:end -->
+
+- **[AWA Toolkit](https://github.com/UpDownLeftDie/AWA-Toolkit)** ([Install](https://github.com/UpDownLeftDie/AWA-Toolkit/raw/refs/heads/main/dist/awa-toolkit.user.js)) — Artifact Optimizer, Control Center tasks, giveaway/vault filters, and UCF reading mode (now in its own repository)
 
 ## Development
 
