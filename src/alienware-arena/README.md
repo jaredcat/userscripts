@@ -1,5 +1,7 @@
 # Alienware Arena Toolkit
 
+![Preview of the Alienware Arena Toolkit](preview.png)
+
 * **Artifact Optimizer** — ARP-maximizing loadouts from your owned artifacts, a Control Center ARP task list, and one-click equip/upgrade
 * **filters** giveaways and Game Vault items (higher tier, claimed, out of stock)
 * Adds **Reading mode** and restores **Classic tables** on UCF threads.
