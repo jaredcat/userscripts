@@ -5,5 +5,7 @@ pnpm-debug.log
 /.nyc_output
 /coverage
 /types
+.DS_Store
+thumbs.db
 
 HARs

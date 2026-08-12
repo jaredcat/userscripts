@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SteamTrade Matcher Userscript
 // @namespace    https://www.steamtradematcher.com
-// @version      2.1.5
+// @version      2.1.6
 // @author       Robou / Tithen-Firion / jaredcat
 // @description  Allows quicker trade offers by automatically adding cards as matched by SteamTrade Matcher
 // @license      AGPL-3.0-or-later
@@ -10,7 +10,6 @@
 // @updateURL    https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/steam-trade.user.js
 // @match        *://steamcommunity.com/tradeoffer/new/*source=stm*
 // @match        *://*.steamtradematcher.com/*
-// @require      https://greasemonkey.github.io/gm4-polyfill/gm4-polyfill.js
 // @connect      steamtradematcher.com
 // @grant        GM.deleteValue
 // @grant        GM.getValue
