@@ -1,18 +1,18 @@
 // ==UserScript==
 // @name         Alienware Arena Toolkit
-// @namespace    https://github.com/jaredcat/userscripts
-// @version      1.9.9
+// @namespace    https://github.com/UpDownLeftDie/AWA-Toolkit
+// @version      2.0.3
 // @author       jaredcat
 // @description  Artifact Optimizer, Control Center tasks, giveaway/vault filters, and UCF reading mode
 // @license      AGPL-3.0-or-later
-// @downloadURL  https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/alienware-arena.user.js
-// @updateURL    https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/alienware-arena.user.js
+// @downloadURL  https://github.com/UpDownLeftDie/AWA-Toolkit/raw/refs/heads/main/dist/awa-toolkit.user.js
+// @updateURL    https://github.com/UpDownLeftDie/AWA-Toolkit/raw/refs/heads/main/dist/awa-toolkit.user.js
 // @match        *://*.alienwarearena.com/*
 // @connect      store.steampowered.com
 // @connect      raw.githubusercontent.com
 // @run-at       document-start
 // ==/UserScript==
 
-(function() {
-	"use strict";
+(function () {
+  'use strict';
 })();

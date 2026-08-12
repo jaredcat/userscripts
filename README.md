@@ -7,7 +7,6 @@ All scripts are targeted for [ViolentMonkey](https://violentmonkey.github.io/) b
 ## Scripts
 
 <!-- scripts-list:start -->
-- **[Alienware Arena Toolkit](src/alienware-arena/README.md)** ([Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/alienware-arena.user.js)) — Artifact Optimizer, Control Center tasks, giveaway/vault filters, and UCF reading mode
 - **[Gamescom Epix Tools](src/gamescom-epix-tools/README.md)** ([Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/gamescom-epix-tools.user.js)) — Tools for Gamescom Epix 2024 event website
 - **[Humble Bundle Key Sort](src/humblebundle-key-sort/README.md)** ([Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/humblebundle-key-sort.user.js)) — Sort Humble Bundle by claimed status
 - **[Kingshot Troop Formation %](src/kingshot-troop-calculator/README.md)** ([Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/kingshot-troop-calculator.user.js)) — Bear table: subtractive simulation; Calculated % = composition per march vs preset goal warnings. Vikings: uniform best-fit. Training Focus.
