@@ -9,6 +9,7 @@
 [Install](https://github.com/jaredcat/userscripts/raw/refs/heads/main/dist/alienware-arena.user.js)
 
 _No userscript manager yet? Install [Violentmonkey](https://violentmonkey.github.io/get-it/) first, then use the link above._
+
 _Recommended browser: [Zen](https://zen-browser.app/) or [Firefox](https://www.firefox.com)_
 
 Open the user menu gear and choose **Artifact Optimizer** or **Filter Settings**. On **Control Center**, an injected panel shows a prioritized **What to do** list plus Equip / Open Full Panel buttons.
