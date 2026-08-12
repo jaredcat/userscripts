@@ -35,9 +35,7 @@
     "typescript",
     "typescriptreact"
   ],
-  "sonarlint.rules": {
-    "typescript:S7773": {
-      "level": "on"
-    }
+  "search.exclude": {
+    "dist": true
   }
 }

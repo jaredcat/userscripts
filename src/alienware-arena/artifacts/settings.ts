@@ -32,6 +32,11 @@ export interface SlotCooldownEntry {
   position: ArtifactSlotPosition;
   changedAt: string;
   artifactInstanceId?: number;
+  /**
+  Invented from a Showroom lock icon when no API equip timestamp was known.
+  Never refresh `changedAt` from later scrapes — only `recordSlotChange` may.
+  */
+  estimated?: boolean;
 }
 
 export interface ArtifactOptimizerSettings {
@@ -202,15 +207,48 @@ export function isSlotOnCooldown(
   position: ArtifactSlotPosition,
   now = Date.now(),
 ): boolean {
-  const entry = findCooldownEntry(settings, position);
-  if (!entry) {
+  return cooldownRemainingMs(settings, position, now) > 0;
+}
+
+/**
+ * Showroom lock icons are the source of truth for whether a slot is locked —
+ * same role the ARP Log has for Discord Poll / calendar completion.
+ * GM `slotCooldowns` never invent a lock; they only answer "how long left?"
+ * after the showroom says locked.
+ */
+export function isShowroomSlotLocked(
+  position: ArtifactSlotPosition,
+  options: {
+    slotLocks?: Partial<Record<ArtifactSlotPosition, boolean>>;
+    equippedSlotLocked?: boolean;
+  } = {},
+): boolean {
+  if (options.equippedSlotLocked === true) {
+    return true;
+  }
+  if (options.equippedSlotLocked === false) {
     return false;
   }
-  const changedAt = Date.parse(entry.changedAt);
-  if (Number.isNaN(changedAt)) {
-    return false;
+  return options.slotLocks?.[position] === true;
+}
+
+/**
+ * Remaining cooldown ms for UI / wait math. Always 0 when the showroom says
+ * the slot is unlocked — even if a stale GM timer still exists.
+ */
+export function showroomCooldownRemainingMs(
+  settings: ArtifactOptimizerSettings,
+  position: ArtifactSlotPosition,
+  options: {
+    slotLocks?: Partial<Record<ArtifactSlotPosition, boolean>>;
+    equippedSlotLocked?: boolean;
+    now?: number;
+  } = {},
+): number {
+  if (!isShowroomSlotLocked(position, options)) {
+    return 0;
   }
-  return now - changedAt < COOLDOWN_MS;
+  return cooldownRemainingMs(settings, position, options.now);
 }
 
 export function cooldownRemainingMs(
@@ -248,38 +286,66 @@ export async function recordSlotChange(
   await saveArtifactSettings({ slotCooldowns: rest });
 }
 
+const SLOT_POSITIONS: ArtifactSlotPosition[] = [1, 2, 3];
+
+function isCompleteSlotLockMap(
+  slotLocks: Partial<Record<ArtifactSlotPosition, boolean>>,
+): slotLocks is Record<ArtifactSlotPosition, boolean> {
+  return SLOT_POSITIONS.every(
+    (position) => typeof slotLocks[position] === 'boolean',
+  );
+}
+
 /**
- * Merge Showroom lock icons / disabled modal slots into local cooldown state.
- * Locked slots without a timer start a full 24h estimate; unlocked slots clear.
+ * Align GM remaining-time timers with Showroom lock icons.
+ *
+ * Showroom is source of truth for locked vs open (like ARP Log for caps).
+ * Local `changedAt` only stores duration for slots the showroom still locks:
+ * - Unlocked → drop any local timer
+ * - Locked + existing timer → keep measured/estimated clock
+ * - Locked + no timer → one-time estimated 24h from now
  */
 export async function syncSlotLocksFromScrape(
   slotLocks: Partial<Record<ArtifactSlotPosition, boolean>>,
   now = Date.now(),
 ): Promise<void> {
   const settings = await getArtifactSettings();
-  let next = [...settings.slotCooldowns];
+  const previous = settings.slotCooldowns;
+  const next: SlotCooldownEntry[] = [];
 
-  for (const position of [1, 2, 3] as ArtifactSlotPosition[]) {
-    const isLocked = slotLocks[position] === true;
-    const hasExistingEntry = next.some((entry) => entry.position === position);
-
-    if (isLocked) {
-      if (hasExistingEntry && isSlotOnCooldown(settings, position, now)) {
-        continue;
-      }
-      next = [
-        ...next.filter((entry) => entry.position !== position),
-        { position, changedAt: new Date(now).toISOString() },
-      ];
+  for (const position of SLOT_POSITIONS) {
+    if (slotLocks[position] !== true) {
       continue;
     }
+    const existing = previous.find((entry) => entry.position === position);
+    if (existing) {
+      next.push(existing);
+      continue;
+    }
+    next.push({
+      position,
+      changedAt: new Date(now).toISOString(),
+      estimated: true,
+    });
+  }
 
-    if (slotLocks[position] === false) {
-      next = next.filter((entry) => entry.position !== position);
+  // Incomplete scrapes (missing keys) must not wipe timers for omitted slots.
+  if (!isCompleteSlotLockMap(slotLocks)) {
+    for (const entry of previous) {
+      if (
+        slotLocks[entry.position] !== false &&
+        next.every((row) => row.position === entry.position)
+      ) {
+        next.push(entry);
+      }
     }
   }
 
-  await saveArtifactSettings({ slotCooldowns: next });
+  const previousKey = JSON.stringify(previous);
+  const nextKey = JSON.stringify(next);
+  if (previousKey !== nextKey) {
+    await saveArtifactSettings({ slotCooldowns: next });
+  }
 }
 
 export { COOLDOWN_MS };

@@ -209,6 +209,17 @@ interface ShowcaseSlot {
 }
 
 /**
+ * Prefer explicit unlock icons. Font Awesome uses `fa-lock-open` (not a
+ * `fa-lock` token), so "has fa-lock and not fa-lock-open" is the locked state.
+ */
+function isShowcaseSlotLocked(slot: Element): boolean {
+  if (slot.querySelector(':scope i.fa-lock-open, :scope i.fa-unlock')) {
+    return false;
+  }
+  return Boolean(slot.querySelector(':scope i.fa-lock'));
+}
+
+/**
  * Hero showcase slots expose equipped artifacts + lock icons even when Unequip
  * is hidden during the 24h cooldown.
  */
@@ -231,35 +242,22 @@ function scrapeShowcaseSlots(document_: Document): ShowcaseSlot[] {
       position = (position + 1) as ArtifactSlotIndex;
       continue;
     }
-    const isLocked = Boolean(
-      slot.querySelector(':scope i.fa-lock:not(.fa-lock-open)'),
-    );
-    result.push({ position, displayName, isLocked });
+    result.push({
+      position,
+      displayName,
+      isLocked: isShowcaseSlotLocked(slot),
+    });
     position = (position + 1) as ArtifactSlotIndex;
   }
   return result;
 }
 
-function scrapeModalLockedPositions(
-  document_: Document,
-): Set<ArtifactSlotIndex> {
-  const locked = new Set<ArtifactSlotIndex>();
-  const validPositions: Set<ArtifactSlotIndex> = new Set([1, 2, 3]);
-  for (const slot of document_.querySelectorAll<HTMLElement>(
-    '.modal-slot.disabled[data-position]',
-  )) {
-    const position = Number(slot.dataset.position) as ArtifactSlotIndex;
-    if (validPositions.has(position)) {
-      locked.add(position);
-    }
-  }
-  return locked;
-}
-
+/**
+Showcase lock icons are the source of truth for slot cooldowns.
+*/
 function applyShowcaseEquips(
   artifacts: OwnedArtifact[],
   showcase: ShowcaseSlot[],
-  modalLocked: Set<ArtifactSlotIndex>,
 ): Partial<Record<ArtifactSlotIndex, boolean>> {
   const slotLocks: Partial<Record<ArtifactSlotIndex, boolean>> = {
     1: false,
@@ -268,8 +266,7 @@ function applyShowcaseEquips(
   };
 
   for (const slot of showcase) {
-    const isLocked = slot.isLocked || modalLocked.has(slot.position);
-    slotLocks[slot.position] = isLocked;
+    slotLocks[slot.position] = slot.isLocked;
     const match = artifacts.find(
       (artifact) =>
         normalizeName(artifact.displayName) === normalizeName(slot.displayName),
@@ -278,17 +275,7 @@ function applyShowcaseEquips(
       continue;
     }
     match.equippedPosition = slot.position;
-    match.slotLocked = isLocked;
-  }
-
-  for (const position of modalLocked) {
-    slotLocks[position] = true;
-    const equipped = artifacts.find(
-      (artifact) => artifact.equippedPosition === position,
-    );
-    if (equipped) {
-      equipped.slotLocked = true;
-    }
+    match.slotLocked = slot.isLocked;
   }
 
   return slotLocks;
@@ -382,8 +369,7 @@ export function scrapeShowroomFromDocument(
   }
 
   const showcase = scrapeShowcaseSlots(document_);
-  const modalLocked = scrapeModalLockedPositions(document_);
-  const slotLocks = applyShowcaseEquips(artifacts, showcase, modalLocked);
+  const slotLocks = applyShowcaseEquips(artifacts, showcase);
 
   return {
     scrapedAt: new Date().toISOString(),
@@ -437,6 +423,9 @@ export async function waitForShowroomDocument(
 }
 
 export async function scrapeAndPersist(): Promise<ArtifactSnapshot> {
+  if (!isShowroomDocumentReady(document)) {
+    await waitForShowroomDocument();
+  }
   if (!isShowroomDocumentReady(document)) {
     const existing = await loadSnapshot();
     if (existing) {

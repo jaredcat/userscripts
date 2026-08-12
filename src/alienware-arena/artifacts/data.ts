@@ -222,7 +222,7 @@ export const ARTIFACTS: ArtifactDefinition[] = [
     id: 'herkow-warrior-script',
     category: 'Weapon',
     tierNames: [
-      "H'erkow Warrior Script",
+      'H`erkow Warrior Script',
       undefined,
       undefined,
       undefined,
@@ -430,6 +430,11 @@ const TIER_NAME_ALIASES: Record<string, { id: string; tier: ArtifactTier }> = {
   'Pn295 Recycler': {
     id: 'pn295-unstable-battery',
     tier: ArtifactTier.Interstellar,
+  },
+  // Megumin guide spelling uses an apostrophe; Showroom uses a backtick
+  "H'erkow Warrior Script": {
+    id: 'herkow-warrior-script',
+    tier: ArtifactTier.Rust,
   },
 };
 

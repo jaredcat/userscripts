@@ -126,6 +126,67 @@ export async function upgradeArtifact(artifactId: number): Promise<ApiResult> {
 }
 
 /**
+ * Pick a free "upgrade" target for AWA's stuck 24h lock bug (Megumin FAQ):
+ * posting Upgrade on a maxed card spends 0 fragments and refreshes slot locks.
+ * Prefer H`erkow Warrior Script when owned.
+ */
+export function pickStuckLockNudgeTarget(
+  artifacts: {
+    instanceId: number;
+    displayName: string;
+    maxLevel: boolean;
+    upgradeCost?: number;
+  }[],
+): { instanceId: number; displayName: string } | undefined {
+  const maxed = artifacts.filter(
+    (artifact) => artifact.maxLevel || artifact.upgradeCost === 0,
+  );
+  if (maxed.length === 0) {
+    return undefined;
+  }
+  const warrior = maxed.find((artifact) =>
+    /warrior script/i.test(artifact.displayName),
+  );
+  const target = warrior ?? maxed[0];
+  if (!target) {
+    return undefined;
+  }
+  return {
+    instanceId: target.instanceId,
+    displayName: target.displayName,
+  };
+}
+
+/**
+ * Kick AWA's stuck-lock bug by upgrading a maxed (0-frag) artifact.
+ * Safe to call on Refresh — no fragments spent when the card is already max.
+ */
+export async function nudgeStuckSlotLocks(
+  artifacts: {
+    instanceId: number;
+    displayName: string;
+    maxLevel: boolean;
+    upgradeCost?: number;
+  }[],
+): Promise<ApiResult | undefined> {
+  const target = pickStuckLockNudgeTarget(artifacts);
+  if (!target) {
+    console.info(
+      '[Artifact Optimizer] Stuck-lock nudge skipped — no maxed 0-frag artifact',
+    );
+    return undefined;
+  }
+  const result = await upgradeArtifact(target.instanceId);
+  console.info('[Artifact Optimizer] Stuck-lock nudge', {
+    name: target.displayName,
+    id: target.instanceId,
+    ok: result.ok,
+    message: result.message ?? result.error,
+  });
+  return result;
+}
+
+/**
  * Equip a recommended loadout into free / specified slots.
  * Uses /change-user-artifacts as an in-place replace (same as the site modal) —
  * do NOT unequip first; emptying a slot can burn the 24h cooldown and leave it empty.
@@ -135,7 +196,6 @@ export async function applyLoadout(
   currentlyEquipped: { artifactId: number; position: ArtifactSlot }[],
 ): Promise<{ results: ApiResult[]; allOk: boolean }> {
   const results: ApiResult[] = [];
-
   for (const target of targets) {
     const isAlready = currentlyEquipped.some(
       (c) =>

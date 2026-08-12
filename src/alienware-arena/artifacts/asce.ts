@@ -20,10 +20,10 @@ const ASCE_HOURS_URL =
 const ASCE_CONFIG_URL =
   'https://raw.githubusercontent.com/MarvashMagalli/ASCE/main/configAWA.json';
 /**
- * ASCE updates about once an hour. Refresh a bit sooner so the next file
- * is picked up without hammering GitHub.
+ * ASCE updates about once an hour. Refresh mid-cycle so the next file is
+ * picked up without hammering GitHub.
  */
-const ASCE_CACHE_TTL_MS = 50 * 60 * 1000;
+const ASCE_CACHE_TTL_MS = 25 * 60 * 1000;
 const ASCE_ERROR_TTL_MS = 30 * 60 * 1000;
 const ASCE_SAMPLE_MAX = 96;
 const FETCH_TIMEOUT_MS = 8000;
@@ -267,11 +267,11 @@ async function fetchAsceFeed(): Promise<AsceCommunityFeed | undefined> {
   };
 }
 
-export async function loadAsceCommunityFeed(): Promise<
-  AsceCommunityFeed | undefined
-> {
+export async function loadAsceCommunityFeed(
+  options: { force?: boolean } = {},
+): Promise<AsceCommunityFeed | undefined> {
   const cache = await loadAsceCache();
-  if (isCacheFresh(cache)) {
+  if (!options.force && isCacheFresh(cache)) {
     if (cache.error) {
       return;
     }
@@ -439,13 +439,14 @@ export async function applyAsceCommunityHours(state: SiteState): Promise<void> {
  */
 export async function didRefreshAsceCommunityHours(
   state: SiteState,
+  options: { force?: boolean } = {},
 ): Promise<boolean> {
   const event = state.communityEvent;
   if (!event?.isLive) {
     return false;
   }
   const before = asceEventSignature(event);
-  const feed = await loadAsceCommunityFeed();
+  const feed = await loadAsceCommunityFeed({ force: options.force === true });
   if (!feed) {
     return false;
   }

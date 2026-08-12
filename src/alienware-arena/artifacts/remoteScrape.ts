@@ -1,9 +1,11 @@
+import { nudgeStuckSlotLocks } from './api';
+import { applyAsceCommunityHours } from './asce';
 import {
-  type ArtifactSnapshot,
   loadSnapshot,
   resolveShowroomUrl,
   saveSnapshot,
   scrapeShowroomFromDocument,
+  type ArtifactSnapshot,
 } from './scraper';
 import { syncSlotLocksFromScrape } from './settings';
 import {
@@ -14,30 +16,32 @@ import {
   applySteamFreeToPlayResolution,
   applySteamQuestsFromDocument,
   emptySiteState,
+  isBattlePassDocumentReady,
+  isChooseYourOwnGameQuest,
+  isControlCenterDocumentReady,
   loadSiteState,
   markCommunityEventEnded,
+  mergeArpLogScrape,
+  mergeBattlePassScrape,
   mergeCommunityEventScrape,
   reconcileCommunityEventWithArpLog,
+  requiresSteamQuestEligibilityFetch,
   saveSiteState,
   scrapeArpLogFromDocument,
-  mergeBattlePassScrape,
   scrapeBattlePassFromDocument,
   scrapeCommunityEventFromDocument,
   scrapeControlCenterCapsFromDocument,
-  scrapeUserArpTierFromDocument,
-  isChooseYourOwnGameQuest,
-  isControlCenterDocumentReady,
   scrapeLiveCommunityEventBanner,
   scrapeSteamPlayEligibilityFromDocument,
+  scrapeUserArpTierFromDocument,
   scrapeWatchTwitchProgressFromDocument,
   steamQuestsCapFromRows,
-  requiresSteamQuestEligibilityFetch,
   sumCommunityEventRewardsFromArpLog,
+  utcDateString,
   waitForControlCenterDocument,
   type SiteState,
   type SteamQuestRow,
 } from './siteState';
-import { applyAsceCommunityHours } from './asce';
 import { scrapeSteamAppIdFromDocument } from './steamApp';
 
 /**
@@ -45,12 +49,22 @@ Inventory / activity caps refresh cadence.
 */
 const STALE_MS = 6 * 60 * 60 * 1000;
 /**
-ARP Log is enough once per day for trend checks; refresh sooner while a live
-event still has unawarded ARP (new Steam Community Event Reward lines appear
-as milestones auto-award).
+Showroom lock icons change when a 24h cooldown ends — recheck often so Control
+Center is not stuck on a 6h-old "all locked" snapshot.
 */
-const ARP_LOG_STALE_MS = 24 * 60 * 60 * 1000;
-const ARP_LOG_PENDING_EVENT_STALE_MS = 6 * 60 * 60 * 1000;
+const SLOT_LOCK_STALE_MS = 5 * 60 * 1000;
+/**
+ARP Log backs Discord Poll / calendar caps and event reward reconciliation.
+A few hours is enough for background refresh; the Refresh button forces sooner
+(see FORCE_REFRESH_COOLDOWN_MS).
+*/
+const ARP_LOG_STALE_MS = 6 * 60 * 60 * 1000;
+/**
+Ignore repeated Refresh clicks within this window per resource.
+Showroom lock icons are cheap to re-check; keep this short so a second
+Refresh after an unlock is not stuck on a stale snapshot.
+*/
+const FORCE_REFRESH_COOLDOWN_MS = 5 * 1000;
 const BATTLE_PASS_STALE_MS = 60 * 60 * 1000;
 /**
 Live event page refresh for personal hours / awards. Community-hour rate
@@ -62,21 +76,38 @@ const BATTLE_PASS_PATH = '/control-center/battle-pass/1';
 const GAME_VAULT_PATH = '/marketplace/game-vault';
 const ARP_LOG_PATH = '/account/arp-log';
 const QUEST_SETUP_PATH = '/steam/questsetup';
-
-function formatDateInput(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
+/**
+The site does not clamp `max` anywhere near this (confirmed up to several
+thousand rows in one response), and the parser no longer stops early either —
+so this only needs to be big enough for worst-case daily volume across
+whichever window below is wider, with headroom.
+*/
+const ARP_LOG_MAX_ROWS = 300;
+/**
+No community event live: still explicit rather than relying on the site's own
+default window, so it's guaranteed (not just observed) to reach back far
+enough to cover the current Discord Poll — which, being weekday-only, is at
+most ~3 days stale (Friday's post is still "current" through the weekend).
+*/
+const ARP_LOG_DEFAULT_DAYS = 7;
+/**
+Live event: reward reconciliation wants deeper history than the poll needs,
+so this window already covers it too.
+*/
+const ARP_LOG_LIVE_EVENT_DAYS = 14;
 
 /**
-Prefer a dated ARP Log window while a community event is live.
+One ARP Log request serves every purpose that reads it — balance/history,
+Daily Login Calendar, Discord Poll, and community-event reward reconciliation
+— rather than each caller fetching its own scoped copy.
 */
 function resolveArpLogPath(event: SiteState['communityEvent']): string {
-  if (!event?.isLive) {
-    return `${ARP_LOG_PATH}?max=50`;
-  }
-  const to = new Date();
-  const from = new Date(to.getTime() - 14 * 24 * 60 * 60 * 1000);
-  return `${ARP_LOG_PATH}?from=${formatDateInput(from)}&to=${formatDateInput(to)}&max=50`;
+  const days = event?.isLive ? ARP_LOG_LIVE_EVENT_DAYS : ARP_LOG_DEFAULT_DAYS;
+  const now = new Date();
+  const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  // AWA's `to` is exclusive (page UI uses tomorrow to include today).
+  const toExclusive = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  return `${ARP_LOG_PATH}?from=${utcDateString(from)}&to=${utcDateString(toExclusive)}&max=${ARP_LOG_MAX_ROWS}`;
 }
 
 interface LoadedPage {
@@ -190,18 +221,10 @@ async function openPageDocument(path: string): Promise<LoadedPage | undefined> {
   });
 }
 
-function hasBattlePassUi(document_: Document): boolean {
-  return Boolean(
-    document_.querySelector(
-      '.bp-popup[data-milestone-id], .bp-popup__claim-btn',
-    ) || /Ready to claim/i.test(document_.body?.textContent ?? ''),
-  );
-}
-
 async function waitForBattlePassUi(document_: Document): Promise<void> {
   const started = Date.now();
   while (Date.now() - started < 5000) {
-    if (hasBattlePassUi(document_)) {
+    if (isBattlePassDocumentReady(document_)) {
       return;
     }
     await delay(250);
@@ -235,7 +258,7 @@ function requiresIframeFallback(path: string, fetched: Document): boolean {
     return !/ARP Log|Redeemable ARP/i.test(fetched.body?.textContent ?? '');
   }
   if (path.includes('/battle-pass')) {
-    return !hasBattlePassUi(fetched);
+    return !isBattlePassDocumentReady(fetched);
   }
   if (path.includes('/steam/community-event')) {
     // Hours are filled client-side into #personal-hours; fetch HTML is empty.
@@ -301,6 +324,13 @@ function isSnapshotFresh(snapshot: ArtifactSnapshot | undefined): boolean {
   return Date.now() - scrapedAt < STALE_MS;
 }
 
+function areSlotLocksFresh(snapshot: ArtifactSnapshot | undefined): boolean {
+  if (!snapshot?.slotLocks) {
+    return false;
+  }
+  return isScrapedWithin(snapshot.scrapedAt, SLOT_LOCK_STALE_MS);
+}
+
 function isCapsFresh(state: SiteState | undefined): boolean {
   if (!state) {
     return false;
@@ -352,8 +382,10 @@ async function refreshBattlePassOnly(next: SiteState): Promise<void> {
   }
 }
 
-function isArpLogFresh(state: SiteState | undefined): boolean {
-  const scrapedAt = state?.arpLog?.scrapedAt;
+function isScrapedWithin(
+  scrapedAt: string | undefined,
+  maxAgeMs: number,
+): boolean {
   if (!scrapedAt) {
     return false;
   }
@@ -361,11 +393,11 @@ function isArpLogFresh(state: SiteState | undefined): boolean {
   if (Number.isNaN(at)) {
     return false;
   }
-  const ttl =
-    state?.communityEvent?.isLive && (state.communityEvent.pendingArp ?? 0) > 0
-      ? ARP_LOG_PENDING_EVENT_STALE_MS
-      : ARP_LOG_STALE_MS;
-  return Date.now() - at < ttl;
+  return Date.now() - at < maxAgeMs;
+}
+
+function isArpLogFresh(state: SiteState | undefined): boolean {
+  return isScrapedWithin(state?.arpLog?.scrapedAt, ARP_LOG_STALE_MS);
 }
 
 function isCommunityEventFresh(state: SiteState | undefined): boolean {
@@ -383,20 +415,11 @@ function isCommunityEventFresh(state: SiteState | undefined): boolean {
   return Date.now() - at < ttl;
 }
 
-export async function ensureArtifactSnapshot(): Promise<
-  ArtifactSnapshot | undefined
-> {
-  const existing = await loadSnapshot();
-  if (isSnapshotFresh(existing)) {
-    return existing;
-  }
-
-  const showroomPath = resolveShowroomUrl(existing?.username);
-  const loaded = await loadRemotePage(showroomPath);
-  if (!loaded) {
-    return existing;
-  }
-
+async function persistShowroomSnapshot(
+  loaded: LoadedPage,
+  showroomPath: string,
+  existing: ArtifactSnapshot | undefined,
+): Promise<ArtifactSnapshot | undefined> {
   const snapshot = scrapeShowroomFromDocument(
     loaded.document,
     pathnameFromUrl(loaded.url, showroomPath),
@@ -404,7 +427,98 @@ export async function ensureArtifactSnapshot(): Promise<
   if (snapshot.artifacts.length > 0) {
     await saveSnapshot(snapshot);
     await syncSlotLocksFromScrape(snapshot.slotLocks ?? {});
+    console.info(
+      '[Artifact Optimizer] Showroom locks',
+      snapshot.slotLocks,
+      'equipped',
+      snapshot.artifacts
+        .filter((artifact) => artifact.equippedPosition !== undefined)
+        .map((artifact) => ({
+          slot: artifact.equippedPosition,
+          name: artifact.displayName,
+          locked: artifact.slotLocked === true,
+        })),
+    );
     return snapshot;
+  }
+  if (existing?.slotLocks) {
+    await syncSlotLocksFromScrape(existing.slotLocks);
+  }
+  return existing;
+}
+
+/**
+ * Megumin FAQ: POST Upgrade on a maxed (0-frag) artifact clears AWA's stuck
+ * 24h lock bug. Force Refresh does that, then re-fetches Showroom.
+ */
+async function scrapeShowroomAfterLockNudge(
+  showroomPath: string,
+  existing: ArtifactSnapshot | undefined,
+): Promise<ArtifactSnapshot | undefined> {
+  let inventory = existing;
+  if (!inventory?.artifacts.length) {
+    const prelim = await loadRemotePage(showroomPath);
+    if (prelim) {
+      inventory = scrapeShowroomFromDocument(
+        prelim.document,
+        pathnameFromUrl(prelim.url, showroomPath),
+      );
+    }
+  }
+  if (inventory?.artifacts.length) {
+    await nudgeStuckSlotLocks(inventory.artifacts);
+  }
+
+  const loaded = await loadRemotePage(showroomPath);
+  if (!loaded) {
+    if (existing?.slotLocks) {
+      await syncSlotLocksFromScrape(existing.slotLocks);
+    }
+    return existing;
+  }
+  return persistShowroomSnapshot(loaded, showroomPath, existing);
+}
+
+export async function ensureArtifactSnapshot(
+  options: { force?: boolean } = {},
+): Promise<ArtifactSnapshot | undefined> {
+  const existing = await loadSnapshot();
+  const isWantsForce = options.force === true;
+
+  // Refresh always re-fetches the Showroom — lock icons are cheap and are the
+  // source of truth. Spam-guarding here left Control Center stuck on a stale
+  // all-locked snapshot.
+  if (
+    !isWantsForce &&
+    isSnapshotFresh(existing) &&
+    areSlotLocksFresh(existing)
+  ) {
+    return existing;
+  }
+
+  const showroomPath = resolveShowroomUrl(existing?.username);
+  if (isWantsForce) {
+    return scrapeShowroomAfterLockNudge(showroomPath, existing);
+  }
+
+  const loaded = await loadRemotePage(showroomPath);
+  if (!loaded) {
+    if (existing?.slotLocks) {
+      await syncSlotLocksFromScrape(existing.slotLocks);
+    }
+    return existing;
+  }
+
+  const snapshot = await persistShowroomSnapshot(
+    loaded,
+    showroomPath,
+    existing,
+  );
+  if (snapshot) {
+    return snapshot;
+  }
+  if (existing?.slotLocks) {
+    await syncSlotLocksFromScrape(existing.slotLocks);
   }
   return existing;
 }
@@ -641,18 +755,9 @@ function applyArpLogReconciliation(next: SiteState): void {
 }
 
 function reconcileCachedSiteState(existing: SiteState): SiteState {
-  const caps = applyArpLogActivityCaps(existing.caps, existing.arpLog);
-  if (!existing.communityEvent) {
-    return { ...existing, caps };
-  }
-  return {
-    ...existing,
-    caps,
-    communityEvent: reconcileCommunityEventWithArpLog(
-      existing.communityEvent,
-      existing.arpLog,
-    ),
-  };
+  const next: SiteState = { ...existing, caps: { ...existing.caps } };
+  applyArpLogReconciliation(next);
+  return next;
 }
 
 async function refreshStaleLiveEvent(next: SiteState): Promise<void> {
@@ -683,7 +788,11 @@ async function refreshArpLog(
     resolveArpLogPath(next.communityEvent ?? existing.communityEvent),
   );
   if (arpDocument) {
-    next.arpLog = scrapeArpLogFromDocument(arpDocument);
+    // Merge so a narrow scrape never drops a vote the previous window had.
+    next.arpLog = mergeArpLogScrape(
+      scrapeArpLogFromDocument(arpDocument),
+      next.arpLog ?? existing.arpLog,
+    );
   }
   // New log rewards often mean milestones just auto-awarded — refresh event.
   if (options.refreshLiveEventAfter && next.communityEvent?.isLive) {
@@ -704,7 +813,7 @@ async function refreshArpLog(
 export function requiresRemoteSnapshotHydrate(
   snapshot: ArtifactSnapshot | undefined,
 ): boolean {
-  return !isSnapshotFresh(snapshot);
+  return !isSnapshotFresh(snapshot) || !areSlotLocksFresh(snapshot);
 }
 
 export function requiresRemoteSiteHydrate(
@@ -742,17 +851,33 @@ export async function ensureSiteState(
   options: { force?: boolean } = {},
 ): Promise<SiteState> {
   const existing = (await loadSiteState()) ?? emptySiteState();
-  const requiresCapsRefresh = Boolean(options.force) || !isCapsFresh(existing);
+  const isForce = options.force === true;
+  // Merge scrapes already keep ASCE hours / samples / play eligibility; force
+  // just means "don't trust TTL". Short cooldown stops Refresh spam.
+  const isForceCaps =
+    isForce && !isScrapedWithin(existing.updatedAt, FORCE_REFRESH_COOLDOWN_MS);
+  // Always re-pull ARP Log on Refresh — Discord Poll / calendar completion
+  // only show up there, and a vote cast right after open must clear the step.
+  const isForceArpLog = isForce;
+  const isForceEvent =
+    isForce &&
+    !isScrapedWithin(
+      existing.communityEvent?.scrapedAt,
+      FORCE_REFRESH_COOLDOWN_MS,
+    );
+
+  const requiresCapsRefresh = isForceCaps || !isCapsFresh(existing);
+  // Always re-pull Battle Pass on Refresh — claim buttons disappear after
+  // claiming, and a fresh scrapedAt must not keep stale readyToClaimArp.
   const requiresBattlePassRefresh =
-    requiresCapsRefresh || shouldRescrapeBattlePass(existing);
+    isForce || requiresCapsRefresh || shouldRescrapeBattlePass(existing);
   const requiresArpLogRefresh =
-    Boolean(options.force) ||
+    isForceArpLog ||
     !isArpLogFresh(existing) ||
     shouldRefreshCommunityEventArpLog(existing);
-  const requiresEventRefresh =
-    Boolean(options.force) || !isCommunityEventFresh(existing);
+  const requiresEventRefresh = isForceEvent || !isCommunityEventFresh(existing);
   const requiresSteamEligibility =
-    Boolean(options.force) || requiresSteamQuestEligibilityFetch(existing);
+    isForceCaps || requiresSteamQuestEligibilityFetch(existing);
 
   if (
     !requiresCapsRefresh &&
