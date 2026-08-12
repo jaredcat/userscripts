@@ -22,7 +22,14 @@ import {
   collectBonuses,
   setBreakdownParts,
 } from './bonuses';
-import { activeSets, currentLoadout, resolveOwnedList } from './context';
+import {
+  activeSets,
+  currentLoadout,
+  isResetInWearWindow,
+  msUntilNextSteamQuestWeek,
+  msUntilNextUtcMidnight,
+  resolveOwnedList,
+} from './context';
 import { hasAllArpEffect, shouldDeferBattlePassForContext } from './search';
 import type {
   BreakdownLine,
@@ -31,13 +38,12 @@ import type {
   ScoredCombo,
 } from './types';
 
-function scoreSteamQuests(
+function scoreSteamQuestBases(
   breakdown: Record<string, RawBreakdownParts>,
   bonuses: BonusBuckets,
   freq: number,
-  siteState: SiteState,
+  bases: number[],
 ): number {
-  const bases = remainingSteamQuestRewards(siteState);
   if (bases.length === 0) {
     return 0;
   }
@@ -52,6 +58,7 @@ function scoreSteamQuests(
 function scoreDailyQuests(
   breakdown: Record<string, RawBreakdownParts>,
   freq: number,
+  onDay: Date,
 ): number {
   const B = BASE_ACTIVITY;
   let flatSum = setBreakdownParts(
@@ -59,7 +66,7 @@ function scoreDailyQuests(
     'dailyQuests',
     B.dailyQuestBase * freq,
   );
-  const day = new Date().getUTCDay();
+  const day = onDay.getUTCDay();
   if (day === 0 || day === 6) {
     flatSum += setBreakdownParts(
       breakdown,
@@ -92,8 +99,13 @@ function scoreSecondaryActivities(
     );
   }
 
-  if (isEnabled('dailyQuests') && isActivityPending(caps, 'dailyQuests')) {
-    flatSum += scoreDailyQuests(breakdown, freq('dailyQuests'));
+  if (isEnabled('dailyQuests')) {
+    if (isActivityPending(caps, 'dailyQuests')) {
+      flatSum += scoreDailyQuests(breakdown, freq('dailyQuests'), new Date());
+    } else if (isResetInWearWindow(msUntilNextUtcMidnight())) {
+      const nextDay = new Date(Date.now() + msUntilNextUtcMidnight());
+      flatSum += scoreDailyQuests(breakdown, freq('dailyQuests'), nextDay);
+    }
   }
 
   if (isEnabled('steamCommunityEvent')) {
@@ -177,7 +189,12 @@ function scoreWindowActivities(
   const freq = (key: keyof typeof acts): number =>
     isEnabled(key) ? (acts[key]?.frequency ?? 0) : 0;
 
-  if (isEnabled('timeOnSite') && isActivityAvailable(caps, 'timeOnSite')) {
+  const isNextUtcResetInLock = isResetInWearWindow(msUntilNextUtcMidnight());
+
+  if (
+    isEnabled('timeOnSite') &&
+    (isNextUtcResetInLock || isActivityAvailable(caps, 'timeOnSite'))
+  ) {
     flatSum += addDailyCategory(
       breakdown,
       'timeOnSite',
@@ -189,25 +206,35 @@ function scoreWindowActivities(
   }
 
   if (isEnabled('watchTwitch')) {
-    const remainingArp =
+    let twitchArp =
       twitchWatchRemainingMs(siteState, bonuses.watchTwitch) / 60_000;
-    if (remainingArp > 0) {
-      flatSum += setBreakdownParts(breakdown, 'watchTwitch', remainingArp);
+    if (isNextUtcResetInLock && twitchArp <= 0) {
+      const capArp = siteState.watchTwitch?.capArp ?? B.watchTwitchBasePerDay;
+      twitchArp = capArp + bonuses.watchTwitch;
+    }
+    if (twitchArp > 0) {
+      flatSum += setBreakdownParts(breakdown, 'watchTwitch', twitchArp);
     }
   }
 
-  if (isEnabled('steamQuests') && isActivityPending(caps, 'steamQuests')) {
-    flatSum += scoreSteamQuests(
-      breakdown,
-      bonuses,
-      freq('steamQuests'),
-      siteState,
-    );
+  if (isEnabled('steamQuests')) {
+    if (isActivityPending(caps, 'steamQuests')) {
+      flatSum += scoreSteamQuestBases(
+        breakdown,
+        bonuses,
+        freq('steamQuests'),
+        remainingSteamQuestRewards(siteState),
+      );
+    } else if (isResetInWearWindow(msUntilNextSteamQuestWeek())) {
+      flatSum += scoreSteamQuestBases(breakdown, bonuses, freq('steamQuests'), [
+        ...B.steamQuestBases,
+      ]);
+    }
   }
 
   if (
     isEnabled('dailyCalendar') &&
-    isActivityAvailable(caps, 'dailyCalendar')
+    (isNextUtcResetInLock || isActivityAvailable(caps, 'dailyCalendar'))
   ) {
     flatSum += addDailyCategory(
       breakdown,
@@ -291,9 +318,10 @@ export function vaultPurchasePriceNow(
 /**
  * Holistic combo score for the next 24h swap window.
  *
- * Artifacts can only change once per day, so we score what you can still earn
- * before the next swap — not a multi-week average. Weeklies (Steam Quests,
- * Discord) count only while still unfinished; capped dailies score 0.
+ * Artifacts lock for 24h, so the window is remaining today plus known resets
+ * that land while worn: next 00:00 UTC dailies when today is already capped,
+ * and the Monday Steam Quest week when that reset falls inside the lock
+ * (Sunday swaps). Goal is lifetime ARP, not only the rest of this UTC day.
  *
  * Stacking order (confirmed by guide math + FAQ):
  *   totalArp = Σ(base + flatCategoryBonus) × (1 + Σ AllArpPct)

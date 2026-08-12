@@ -3,7 +3,7 @@ import type { MonkeyUserScript } from 'vite-plugin-monkey';
 const metadata: MonkeyUserScript = {
   name: 'Alienware Arena Toolkit',
   namespace: 'https://github.com/jaredcat/userscripts',
-  version: '2.0.1',
+  version: '2.0.2',
   description:
     'Artifact Optimizer, Control Center tasks, giveaway/vault filters, and UCF reading mode',
   match: ['*://*.alienwarearena.com/*'],

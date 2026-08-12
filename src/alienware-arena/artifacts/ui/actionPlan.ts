@@ -9,6 +9,8 @@ import {
 import {
   type ActivityLoadoutStats,
   activityStatsForArtifacts,
+  isResetInWearWindow,
+  msUntilNextSteamQuestWeek,
   type OptimizerResult,
   type UpgradeSuggestion,
 } from '../optimizer';
@@ -935,9 +937,7 @@ function isSequencedActivityDue(
     return false;
   }
   if (rule.key === 'watchTwitch') {
-    return (
-      watchRemainingMs > 0 || isActivityAvailable(siteState.caps, 'watchTwitch')
-    );
+    return watchRemainingMs > 0;
   }
   return rule.isDue(siteState.caps);
 }
@@ -1097,6 +1097,23 @@ function pushAllArpEquipReasons(
   // Battle Pass claim is its own follow-up action item — don't restate it here.
 }
 
+function pushFlatEquipReason(
+  reasons: ActionTodoReason[],
+  amount: number,
+  waitMs: number,
+  isDueNow: boolean,
+  isDueAfterReset: boolean,
+  nowLabel: string,
+  laterLabel: string,
+): void {
+  if (amount <= 0 || (!isDueNow && !isDueAfterReset)) {
+    return;
+  }
+  reasons.push({
+    text: flatBonusReason(amount, isDueNow ? nowLabel : laterLabel, waitMs),
+  });
+}
+
 function collectEquipReasons(
   siteState: SiteState,
   waitMs: number,
@@ -1108,27 +1125,43 @@ function collectEquipReasons(
 
   pushAllArpEquipReasons(reasons, stats.allArpPct, siteState);
 
-  if (stats.steamQuestsFlat > 0 && isActivityPending(caps, 'steamQuests')) {
-    reasons.push({ text: `+${stats.steamQuestsFlat} Steam Quests` });
-  }
-  if (stats.watchTwitchFlat > 0 && isActivityAvailable(caps, 'watchTwitch')) {
-    reasons.push({
-      text: flatBonusReason(stats.watchTwitchFlat, 'Watch Twitch cap', waitMs),
-    });
-  }
+  const isNextUtcResetInLock = isResetInWearWindow(
+    msUntilUtcMidnight(),
+    waitMs,
+  );
+  const isSteamDueNow = isActivityPending(caps, 'steamQuests');
+  pushFlatEquipReason(
+    reasons,
+    stats.steamQuestsFlat,
+    waitMs,
+    isSteamDueNow,
+    isResetInWearWindow(msUntilNextSteamQuestWeek(), waitMs),
+    'Steam Quests',
+    'Steam Quests after Monday reset',
+  );
+  pushFlatEquipReason(
+    reasons,
+    stats.watchTwitchFlat,
+    waitMs,
+    isActivityAvailable(caps, 'watchTwitch'),
+    isNextUtcResetInLock,
+    'Watch Twitch cap',
+    'Watch Twitch cap after 00:00 UTC',
+  );
   if (stats.discordPollFlat > 0 && isActivityPending(caps, 'discordPoll')) {
     reasons.push({
       text: flatBonusReason(stats.discordPollFlat, 'Discord Poll', waitMs),
     });
   }
-  if (
-    stats.dailyCalendarFlat > 0 &&
-    isActivityAvailable(caps, 'dailyCalendar')
-  ) {
-    reasons.push({
-      text: flatBonusReason(stats.dailyCalendarFlat, 'Daily Calendar', waitMs),
-    });
-  }
+  pushFlatEquipReason(
+    reasons,
+    stats.dailyCalendarFlat,
+    waitMs,
+    isActivityAvailable(caps, 'dailyCalendar'),
+    isNextUtcResetInLock,
+    'Daily Calendar',
+    'Daily Calendar after 00:00 UTC',
+  );
   if (waitMs > 0 && isArtifactsShowroomPage()) {
     reasons.push({
       text: 'Still stuck after Refresh? Upgrade a maxed artifact manually (Warrior Script) — 0 fragments',

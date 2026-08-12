@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Alienware Arena Toolkit
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      2.0.1
+// @version      2.0.2
 // @author       jaredcat
 // @description  Artifact Optimizer, Control Center tasks, giveaway/vault filters, and UCF reading mode
 // @license      AGPL-3.0-or-later
@@ -1975,11 +1975,16 @@
 	function scrapeWatchTwitchProgressFromDocument(document_, previous) {
 		const twitchData = parseDailyArpTwitchData(document_);
 		const capFromPage = parseTwitchDailyCapArp(document_);
-		const statusEarned = parseTwitchArpStatus(document_).earnedArp;
-		if (!twitchData && capFromPage === void 0 && statusEarned === void 0) return previous;
+		const status = parseTwitchArpStatus(document_);
+		if (!twitchData && capFromPage === void 0 && status.earnedArp === void 0 && status.cap === void 0) return previous;
 		const capArp = capFromPage ?? previous?.capArp ?? BASE_ACTIVITY.watchTwitchBasePerDay;
-		const baseArp = twitchData?.totalPoints ?? statusEarned ?? previous?.baseArp ?? 0;
-		const isUnderCap = twitchData?.isUnderCap ?? previous?.isUnderCap ?? true;
+		let isUnderCap;
+		if (twitchData) isUnderCap = twitchData.isUnderCap;
+		else if (status.cap === "capped") isUnderCap = false;
+		else if (status.cap === "available") isUnderCap = true;
+		else isUnderCap = previous?.isUnderCap ?? true;
+		const parsedArp = twitchData?.totalPoints ?? status.earnedArp ?? previous?.baseArp ?? 0;
+		const baseArp = isUnderCap ? parsedArp : Math.max(parsedArp, capArp);
 		const remainingArp = isUnderCap ? Math.max(0, capArp - baseArp) : 0;
 		return {
 			scrapedAt: new Date().toISOString(),
@@ -1996,7 +2001,7 @@
 		const baseCap = progress?.capArp ?? BASE_ACTIVITY.watchTwitchBasePerDay;
 		const isFreshProgress = progress !== void 0 && utcDateString(new Date(progress.scrapedAt)) === utcDateString(now);
 		let earned = 0;
-		if (isFreshProgress && progress) earned = progress.baseArp;
+		if (isFreshProgress && progress) earned = progress.isUnderCap ? progress.baseArp : Math.max(progress.baseArp, baseCap);
 		else if (state?.caps.watchTwitch === "capped") earned = baseCap;
 		return Math.max(0, baseCap + twitchFlat - earned) * TWITCH_MS_PER_ARP;
 	}
@@ -2089,12 +2094,34 @@
 	function isControlCenterDocumentReady(document_) {
 		return Boolean(document_.querySelector(CONTROL_CENTER_WIDGET));
 	}
+	function isControlCenterTwitchDataReady(document_) {
+		if (document_.querySelector("#control-center__twitch-arp-status")?.textContent?.trim()) return true;
+		return parseDailyArpTwitchData(document_) !== void 0;
+	}
+	function isControlCenterActivityReady(document_) {
+		return isControlCenterDocumentReady(document_) && isControlCenterTwitchDataReady(document_);
+	}
+	function controlCenterActivitySignature(document_) {
+		const caps = scrapeControlCenterCapsFromDocument(document_);
+		const twitch = scrapeWatchTwitchProgressFromDocument(document_);
+		return [
+			caps.watchTwitch,
+			caps.steamQuests,
+			caps.timeOnSite,
+			caps.dailyCalendar,
+			caps.dailyQuests,
+			twitch?.baseArp,
+			twitch?.isUnderCap,
+			twitch?.timeWatched,
+			twitch?.bonusArp
+		].join(":");
+	}
 	async function waitForControlCenterDocument(timeoutMs = 12e3) {
-		if (isControlCenterDocumentReady(document)) return;
+		if (isControlCenterActivityReady(document)) return;
 		await new Promise((resolve) => {
 			let isSettled = false;
 			const observer = new MutationObserver(() => {
-				if (isControlCenterDocumentReady(document)) finish();
+				if (isControlCenterActivityReady(document)) finish();
 			});
 			const timer = setTimeout(finish, timeoutMs);
 			function finish() {
@@ -2334,17 +2361,17 @@
 		await saveSiteState(next);
 		return next;
 	}
-	function watchBattlePassPage(onPersist) {
-		if (!location.pathname.includes("/battle-pass")) return;
-		if (document.documentElement.dataset.aoBpWatch === "1") return;
-		document.documentElement.dataset.aoBpWatch = "1";
+	function watchLiveSiteStatePage(options) {
+		if (!options.isPage) return;
+		if (document.documentElement.dataset[options.datasetFlag] === "1") return;
+		document.documentElement.dataset[options.datasetFlag] = "1";
 		let debounceTimer;
 		let lastSignature = "";
 		let isPersisting = false;
 		let isPendingAfterPersist = false;
 		const persistIfChanged = async () => {
-			if (!isBattlePassDocumentReady(document)) return;
-			const signature = battlePassClaimSignature(document);
+			if (!options.isReady(document)) return;
+			const signature = options.signature(document);
 			if (signature === lastSignature) return;
 			if (isPersisting) {
 				isPendingAfterPersist = true;
@@ -2354,7 +2381,7 @@
 			try {
 				const state = await refreshSiteStateFromPage();
 				lastSignature = signature;
-				await onPersist?.(state);
+				await options.onPersist?.(state);
 			} finally {
 				isPersisting = false;
 				if (isPendingAfterPersist) {
@@ -2371,18 +2398,42 @@
 			}, 250);
 		};
 		(async () => {
-			await waitForBattlePassDocument();
+			await options.waitForReady();
 			await persistIfChanged();
 			new MutationObserver(schedule).observe(document.documentElement, {
 				childList: true,
-				subtree: true
+				subtree: true,
+				characterData: true
 			});
+			if (!options.clickSelector) return;
+			const clickSelector = options.clickSelector;
 			document.addEventListener("click", (event) => {
 				const target = event.target;
 				if (!(target instanceof Element)) return;
-				if (target.closest(".bp-popup__claim-btn")) schedule();
+				if (target.closest(clickSelector)) schedule();
 			}, { capture: true });
 		})();
+	}
+	function watchBattlePassPage(onPersist) {
+		watchLiveSiteStatePage({
+			isPage: location.pathname.includes("/battle-pass"),
+			datasetFlag: "aoBpWatch",
+			isReady: isBattlePassDocumentReady,
+			signature: battlePassClaimSignature,
+			waitForReady: waitForBattlePassDocument,
+			...onPersist && { onPersist },
+			clickSelector: ".bp-popup__claim-btn"
+		});
+	}
+	function watchControlCenterPage(onPersist) {
+		watchLiveSiteStatePage({
+			isPage: location.pathname.includes("/control-center") && !location.pathname.includes("/battle-pass"),
+			datasetFlag: "aoCcWatch",
+			isReady: isControlCenterActivityReady,
+			signature: controlCenterActivitySignature,
+			waitForReady: waitForControlCenterDocument,
+			...onPersist && { onPersist }
+		});
 	}
 	async function applySteamFreeToPlayResolution(next) {
 		await resolveSiteStateSteamFreeToPlay(next);
@@ -3064,6 +3115,15 @@
 		const date = new Date(now);
 		return Math.max(0, Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1) - now);
 	}
+	function msUntilNextSteamQuestWeek(now = Date.now()) {
+		const date = new Date(now);
+		const day = date.getUTCDay();
+		const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7;
+		return Math.max(0, Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + daysUntilMonday) - now);
+	}
+	function isResetInWearWindow(delayMs, waitMs = 0, horizonMs = COOLDOWN_MS) {
+		return delayMs > waitMs && delayMs <= waitMs + horizonMs;
+	}
 	function pinHorizonMs(siteState, now = Date.now()) {
 		const untilReset = msUntilNextUtcMidnight(now);
 		const event = siteState.communityEvent;
@@ -3209,15 +3269,14 @@
 	function addDailyCategory(breakdown, key, base, flatBonus, days, frequency) {
 		return setBreakdownParts(breakdown, key, base * days * frequency, flatBonus * days * frequency);
 	}
-	function scoreSteamQuests(breakdown, bonuses, freq, siteState) {
-		const bases = remainingSteamQuestRewards(siteState);
+	function scoreSteamQuestBases(breakdown, bonuses, freq, bases) {
 		if (bases.length === 0) return 0;
 		return setBreakdownParts(breakdown, "steamQuests", bases.reduce((sum, base) => sum + base, 0) * freq, bonuses.steamQuests * bases.length * freq);
 	}
-	function scoreDailyQuests(breakdown, freq) {
+	function scoreDailyQuests(breakdown, freq, onDay) {
 		const B = BASE_ACTIVITY;
 		let flatSum = setBreakdownParts(breakdown, "dailyQuests", B.dailyQuestBase * freq);
-		const day = new Date().getUTCDay();
+		const day = onDay.getUTCDay();
 		if (day === 0 || day === 6) flatSum += setBreakdownParts(breakdown, "weekendQuests", B.weekendQuestBase * freq);
 		return flatSum;
 	}
@@ -3230,7 +3289,13 @@
 			const polls = B.discordPollsWhenPending * freq("discordPoll");
 			flatSum += setBreakdownParts(breakdown, "discordPoll", B.discordPollBase * polls, bonuses.discordPoll * polls);
 		}
-		if (isEnabled("dailyQuests") && isActivityPending(caps, "dailyQuests")) flatSum += scoreDailyQuests(breakdown, freq("dailyQuests"));
+		if (isEnabled("dailyQuests")) {
+			if (isActivityPending(caps, "dailyQuests")) flatSum += scoreDailyQuests(breakdown, freq("dailyQuests"), new Date());
+			else if (isResetInWearWindow(msUntilNextUtcMidnight())) {
+				const nextDay = new Date(Date.now() + msUntilNextUtcMidnight());
+				flatSum += scoreDailyQuests(breakdown, freq("dailyQuests"), nextDay);
+			}
+		}
 		if (isEnabled("steamCommunityEvent")) {
 			const eventArp = communityEventArpInSwapWindow(siteState);
 			if (eventArp > 0) flatSum += setBreakdownParts(breakdown, "steamCommunityEvent", eventArp * freq("steamCommunityEvent"));
@@ -3263,13 +3328,18 @@
 		let flatSum = 0;
 		const isEnabled = (key) => (acts[key]?.enabled ?? false) && (acts[key]?.frequency ?? 0) > 0;
 		const freq = (key) => isEnabled(key) ? acts[key]?.frequency ?? 0 : 0;
-		if (isEnabled("timeOnSite") && isActivityAvailable(caps, "timeOnSite")) flatSum += addDailyCategory(breakdown, "timeOnSite", B.timeOnSiteBasePerDay, bonuses.timeOnSite, B.days, freq("timeOnSite"));
+		const isNextUtcResetInLock = isResetInWearWindow(msUntilNextUtcMidnight());
+		if (isEnabled("timeOnSite") && (isNextUtcResetInLock || isActivityAvailable(caps, "timeOnSite"))) flatSum += addDailyCategory(breakdown, "timeOnSite", B.timeOnSiteBasePerDay, bonuses.timeOnSite, B.days, freq("timeOnSite"));
 		if (isEnabled("watchTwitch")) {
-			const remainingArp = twitchWatchRemainingMs(siteState, bonuses.watchTwitch) / 6e4;
-			if (remainingArp > 0) flatSum += setBreakdownParts(breakdown, "watchTwitch", remainingArp);
+			let twitchArp = twitchWatchRemainingMs(siteState, bonuses.watchTwitch) / 6e4;
+			if (isNextUtcResetInLock && twitchArp <= 0) twitchArp = (siteState.watchTwitch?.capArp ?? B.watchTwitchBasePerDay) + bonuses.watchTwitch;
+			if (twitchArp > 0) flatSum += setBreakdownParts(breakdown, "watchTwitch", twitchArp);
 		}
-		if (isEnabled("steamQuests") && isActivityPending(caps, "steamQuests")) flatSum += scoreSteamQuests(breakdown, bonuses, freq("steamQuests"), siteState);
-		if (isEnabled("dailyCalendar") && isActivityAvailable(caps, "dailyCalendar")) flatSum += addDailyCategory(breakdown, "dailyCalendar", B.dailyCalendarBasePerDay, bonuses.dailyCalendar, B.days, freq("dailyCalendar"));
+		if (isEnabled("steamQuests")) {
+			if (isActivityPending(caps, "steamQuests")) flatSum += scoreSteamQuestBases(breakdown, bonuses, freq("steamQuests"), remainingSteamQuestRewards(siteState));
+			else if (isResetInWearWindow(msUntilNextSteamQuestWeek())) flatSum += scoreSteamQuestBases(breakdown, bonuses, freq("steamQuests"), [...B.steamQuestBases]);
+		}
+		if (isEnabled("dailyCalendar") && (isNextUtcResetInLock || isActivityAvailable(caps, "dailyCalendar"))) flatSum += addDailyCategory(breakdown, "dailyCalendar", B.dailyCalendarBasePerDay, bonuses.dailyCalendar, B.days, freq("dailyCalendar"));
 		flatSum += scoreSecondaryActivities(breakdown, bonuses, context, isEnabled, freq);
 		return {
 			flatSum,
@@ -3415,10 +3485,6 @@
 		return path;
 	}
 	function findBestCombo(owned, context) {
-		if (communityEventArpInSwapWindow(context.siteState) > 0 && canAssembleAllArp(owned)) {
-			const allArp = findBestComboBy(owned, context, (combo) => combo.weeklyArp, (combo) => combo.allArpPct > 0);
-			if (allArp) return allArp;
-		}
 		if (resolveDeferredAllArp(owned, context)) {
 			const equipped = currentLoadout(owned);
 			const frozen = findBestComboBy(owned, context, (combo) => combo.weeklyArp, (combo) => combo.allArpPct > 0 || isSameLoadout$1(combo.artifacts, equipped));
@@ -3453,9 +3519,16 @@
 			unlock
 		};
 	}
+	function comboTieBreakDelta(scored, best, equipped) {
+		if (scored.allArpPct !== best.allArpPct) return scored.allArpPct - best.allArpPct;
+		const isScoredEquipped = isSameLoadout$1(scored.artifacts, equipped);
+		if (isScoredEquipped === isSameLoadout$1(best.artifacts, equipped)) return 0;
+		return isScoredEquipped ? 1 : -1;
+	}
 	function findBestComboBy(owned, context, primary, isEligible) {
 		if (owned.length === 0) return;
 		const size = Math.min(3, owned.length);
+		const equipped = currentLoadout(owned);
 		const pinned = pinnedEquippedArtifacts(owned, context.settings, context.siteState, context.snapshot.slotLocks);
 		let best;
 		let bestPrimary = Number.NEGATIVE_INFINITY;
@@ -3463,7 +3536,7 @@
 			const scored = scoreCombo(combo, context);
 			if (!isEligible(scored)) continue;
 			const score = primary(scored);
-			if (!best || score > bestPrimary || score === bestPrimary && scored.totalScore > best.totalScore) {
+			if (!best || score > bestPrimary || score === bestPrimary && scored.totalScore > best.totalScore || score === bestPrimary && scored.totalScore === best.totalScore && comboTieBreakDelta(scored, best, equipped) > 0) {
 				best = scored;
 				bestPrimary = score;
 			}
@@ -4355,7 +4428,7 @@
 	}
 	function isSequencedActivityDue(rule, settings, siteState, watchRemainingMs) {
 		if (!isActivityEnabled(settings, rule.key)) return false;
-		if (rule.key === "watchTwitch") return watchRemainingMs > 0 || isActivityAvailable(siteState.caps, "watchTwitch");
+		if (rule.key === "watchTwitch") return watchRemainingMs > 0;
 		return rule.isDue(siteState.caps);
 	}
 	function buildSequencedActivityTodos(result, settings, siteState, options) {
@@ -4435,15 +4508,21 @@
 		if (pending.waitingPersonalArp > 0) reasons.push({ text: `All-ARP% before personal Community Event hours (${formatCommunityEventArp(pending.waitingPersonalArp, allArpPct)})` });
 		else if (pending.waitingCommunityArp > 0) reasons.push({ text: `All-ARP% before community unlock (${describeWaitingCommunityArpLine(event, pending.waitingCommunityArp, allArpPct)})` });
 	}
+	function pushFlatEquipReason(reasons, amount, waitMs, isDueNow, isDueAfterReset, nowLabel, laterLabel) {
+		if (amount <= 0 || !isDueNow && !isDueAfterReset) return;
+		reasons.push({ text: flatBonusReason(amount, isDueNow ? nowLabel : laterLabel, waitMs) });
+	}
 	function collectEquipReasons(siteState, waitMs, stepArtifacts) {
 		const reasons = [];
 		const caps = siteState.caps;
 		const stats = activityStatsForArtifacts(stepArtifacts);
 		pushAllArpEquipReasons(reasons, stats.allArpPct, siteState);
-		if (stats.steamQuestsFlat > 0 && isActivityPending(caps, "steamQuests")) reasons.push({ text: `+${stats.steamQuestsFlat} Steam Quests` });
-		if (stats.watchTwitchFlat > 0 && isActivityAvailable(caps, "watchTwitch")) reasons.push({ text: flatBonusReason(stats.watchTwitchFlat, "Watch Twitch cap", waitMs) });
+		const isNextUtcResetInLock = isResetInWearWindow(msUntilUtcMidnight(), waitMs);
+		const isSteamDueNow = isActivityPending(caps, "steamQuests");
+		pushFlatEquipReason(reasons, stats.steamQuestsFlat, waitMs, isSteamDueNow, isResetInWearWindow(msUntilNextSteamQuestWeek(), waitMs), "Steam Quests", "Steam Quests after Monday reset");
+		pushFlatEquipReason(reasons, stats.watchTwitchFlat, waitMs, isActivityAvailable(caps, "watchTwitch"), isNextUtcResetInLock, "Watch Twitch cap", "Watch Twitch cap after 00:00 UTC");
 		if (stats.discordPollFlat > 0 && isActivityPending(caps, "discordPoll")) reasons.push({ text: flatBonusReason(stats.discordPollFlat, "Discord Poll", waitMs) });
-		if (stats.dailyCalendarFlat > 0 && isActivityAvailable(caps, "dailyCalendar")) reasons.push({ text: flatBonusReason(stats.dailyCalendarFlat, "Daily Calendar", waitMs) });
+		pushFlatEquipReason(reasons, stats.dailyCalendarFlat, waitMs, isActivityAvailable(caps, "dailyCalendar"), isNextUtcResetInLock, "Daily Calendar", "Daily Calendar after 00:00 UTC");
 		if (waitMs > 0 && isArtifactsShowroomPage()) reasons.push({ text: "Still stuck after Refresh? Upgrade a maxed artifact manually (Warrior Script) — 0 fragments" });
 		return reasons;
 	}
@@ -5904,7 +5983,7 @@
 	}
 	async function loadControlCenterDocument() {
 		if (!isLiveControlCenterPage()) return loadRemoteDocument(CONTROL_CENTER_PATH);
-		if (isControlCenterDocumentReady(document)) return document;
+		if (isControlCenterActivityReady(document)) return document;
 		await waitForControlCenterDocument();
 		if (isControlCenterDocumentReady(document)) return document;
 		return loadRemoteDocument(CONTROL_CENTER_PATH);
@@ -6176,7 +6255,7 @@
 		if (!result) return "";
 		const rows = Object.entries(result.breakdown).filter(([, entry]) => entry.total !== 0).map(([k, entry]) => `<div class="ao-row ao-muted">${escapeHtml(breakdownLabel(k))}: ${formatBreakdownLine(entry)}</div>`).join("");
 		return `
-    <div class="ao-row">Estimated next-24h ARP: <strong>${result.weeklyArp}</strong></div>
+    <div class="ao-row">Estimated lock-window ARP: <strong>${result.weeklyArp}</strong></div>
     ${result.marketplaceSavingsArp > 0 ? `<div class="ao-row">Market savings: <strong>${result.marketplaceSavingsArp}</strong></div>` : ""}
     <div class="ao-row">All ARP multiplier: <strong>${(result.allArpPct * 100).toFixed(0)}%</strong></div>
     ${result.activeSetNames.length > 0 ? `<div class="ao-row">Sets: ${escapeHtml(result.activeSetNames.join(", "))}</div>` : ""}
@@ -7042,6 +7121,13 @@
 		if (isControlCenterPage()) {
 			ensureControlCenterHost();
 			injectControlCenterPanel();
+			watchControlCenterPage(async (state) => {
+				await applyAsceCommunityHours(state);
+				await saveSiteState(state);
+				const panel = document.querySelector(`#${CC_PANEL_ID}`);
+				if (!panel?.shadowRoot) return;
+				paintControlCenterPanel(panel, await gatherData({ remote: false }), false);
+			});
 		} else if (isArtifactsShowroomPage()) {
 			ensureShowroomHost();
 			injectShowroomPanel();

@@ -18,6 +18,7 @@ import {
   emptySiteState,
   isBattlePassDocumentReady,
   isChooseYourOwnGameQuest,
+  isControlCenterActivityReady,
   isControlCenterDocumentReady,
   loadSiteState,
   markCommunityEventEnded,
@@ -682,7 +683,7 @@ async function loadControlCenterDocument(): Promise<Document | undefined> {
   if (!isLiveControlCenterPage()) {
     return loadRemoteDocument(CONTROL_CENTER_PATH);
   }
-  if (isControlCenterDocumentReady(document)) {
+  if (isControlCenterActivityReady(document)) {
     return document;
   }
   await waitForControlCenterDocument();

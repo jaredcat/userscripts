@@ -15,9 +15,12 @@ import {
 } from './battlePass';
 import {
   applyArpLogActivityCaps,
+  controlCenterActivitySignature,
+  isControlCenterActivityReady,
   isControlCenterDocumentReady,
   scrapeControlCenterCaps,
   scrapeWatchTwitchProgressFromDocument,
+  waitForControlCenterDocument,
 } from './caps';
 import {
   mergeCommunityEventScrape,
@@ -212,24 +215,25 @@ export async function refreshSiteStateFromPage(): Promise<SiteState> {
 }
 
 /**
- * Keep Battle Pass ready-to-claim counts in sync while the user claims on the
- * live page (CLAIM buttons disappear / COMPLETE markers appear).
- *
- * `onPersist` runs after every persisted refresh (e.g. to also refresh ASCE
- * community-event hours, mirroring what other site-state pages do on visit)
- * — kept as a caller hook instead of an import here to avoid a circular
- * dependency with `asce.ts`, which itself imports from this module.
+ * `onPersist` runs after every persisted refresh (e.g. ASCE hours) — caller
+ * hook instead of importing `asce.ts` here (circular with this module).
  */
-export function watchBattlePassPage(
-  onPersist?: (state: SiteState) => void | Promise<void>,
-): void {
-  if (!location.pathname.includes('/battle-pass')) {
+function watchLiveSiteStatePage(options: {
+  isPage: boolean;
+  datasetFlag: 'aoBpWatch' | 'aoCcWatch';
+  isReady: (document_: Document) => boolean;
+  signature: (document_: Document) => string;
+  waitForReady: () => Promise<void>;
+  onPersist?: (state: SiteState) => void | Promise<void>;
+  clickSelector?: string;
+}): void {
+  if (!options.isPage) {
     return;
   }
-  if (document.documentElement.dataset.aoBpWatch === '1') {
+  if (document.documentElement.dataset[options.datasetFlag] === '1') {
     return;
   }
-  document.documentElement.dataset.aoBpWatch = '1';
+  document.documentElement.dataset[options.datasetFlag] = '1';
 
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let lastSignature = '';
@@ -237,10 +241,10 @@ export function watchBattlePassPage(
   let isPendingAfterPersist = false;
 
   const persistIfChanged = async (): Promise<void> => {
-    if (!isBattlePassDocumentReady(document)) {
+    if (!options.isReady(document)) {
       return;
     }
-    const signature = battlePassClaimSignature(document);
+    const signature = options.signature(document);
     if (signature === lastSignature) {
       return;
     }
@@ -252,7 +256,7 @@ export function watchBattlePassPage(
     try {
       const state = await refreshSiteStateFromPage();
       lastSignature = signature;
-      await onPersist?.(state);
+      await options.onPersist?.(state);
     } finally {
       isPersisting = false;
       if (isPendingAfterPersist) {
@@ -273,13 +277,18 @@ export function watchBattlePassPage(
   };
 
   void (async () => {
-    await waitForBattlePassDocument();
+    await options.waitForReady();
     await persistIfChanged();
     const observer = new MutationObserver(schedule);
     observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
+      characterData: true,
     });
+    if (!options.clickSelector) {
+      return;
+    }
+    const clickSelector = options.clickSelector;
     document.addEventListener(
       'click',
       (event) => {
@@ -287,13 +296,50 @@ export function watchBattlePassPage(
         if (!(target instanceof Element)) {
           return;
         }
-        if (target.closest('.bp-popup__claim-btn')) {
+        if (target.closest(clickSelector)) {
           schedule();
         }
       },
       { capture: true },
     );
   })();
+}
+
+/**
+ * Keep Battle Pass ready-to-claim counts in sync while the user claims on the
+ * live page (CLAIM buttons disappear / COMPLETE markers appear).
+ */
+export function watchBattlePassPage(
+  onPersist?: (state: SiteState) => void | Promise<void>,
+): void {
+  watchLiveSiteStatePage({
+    isPage: location.pathname.includes('/battle-pass'),
+    datasetFlag: 'aoBpWatch',
+    isReady: isBattlePassDocumentReady,
+    signature: battlePassClaimSignature,
+    waitForReady: waitForBattlePassDocument,
+    ...(onPersist && { onPersist }),
+    clickSelector: '.bp-popup__claim-btn',
+  });
+}
+
+/**
+ * Keep Control Center caps / Watch Twitch in sync while the user stays on the
+ * page (jQuery fills empty SSR spans; twitch ticks update status text).
+ */
+export function watchControlCenterPage(
+  onPersist?: (state: SiteState) => void | Promise<void>,
+): void {
+  watchLiveSiteStatePage({
+    isPage:
+      location.pathname.includes('/control-center') &&
+      !location.pathname.includes('/battle-pass'),
+    datasetFlag: 'aoCcWatch',
+    isReady: isControlCenterActivityReady,
+    signature: controlCenterActivitySignature,
+    waitForReady: waitForControlCenterDocument,
+    ...(onPersist && { onPersist }),
+  });
 }
 
 export async function applySteamFreeToPlayResolution(
@@ -359,6 +405,7 @@ export {
   applyArpLogActivityCaps,
   scrapeControlCenterCapsFromDocument,
   scrapeControlCenterCaps,
+  isControlCenterActivityReady,
   isControlCenterDocumentReady,
   waitForControlCenterDocument,
 } from './caps';

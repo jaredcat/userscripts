@@ -133,7 +133,7 @@ export function renderBreakdown(result: OptimizerResult['best']): string {
     )
     .join('');
   return `
-    <div class="ao-row">Estimated next-24h ARP: <strong>${result.weeklyArp}</strong></div>
+    <div class="ao-row">Estimated lock-window ARP: <strong>${result.weeklyArp}</strong></div>
     ${
       result.marketplaceSavingsArp > 0
         ? `<div class="ao-row">Market savings: <strong>${result.marketplaceSavingsArp}</strong></div>`

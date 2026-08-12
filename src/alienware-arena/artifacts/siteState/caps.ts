@@ -217,15 +217,30 @@ export function scrapeWatchTwitchProgressFromDocument(
 ): WatchTwitchProgress | undefined {
   const twitchData = parseDailyArpTwitchData(document_);
   const capFromPage = parseTwitchDailyCapArp(document_);
-  const statusEarned = parseTwitchArpStatus(document_).earnedArp;
-  if (!twitchData && capFromPage === undefined && statusEarned === undefined) {
+  const status = parseTwitchArpStatus(document_);
+  if (
+    !twitchData &&
+    capFromPage === undefined &&
+    status.earnedArp === undefined &&
+    status.cap === undefined
+  ) {
     return previous;
   }
   const capArp =
     capFromPage ?? previous?.capArp ?? BASE_ACTIVITY.watchTwitchBasePerDay;
-  const baseArp =
-    twitchData?.totalPoints ?? statusEarned ?? previous?.baseArp ?? 0;
-  const isUnderCap = twitchData?.isUnderCap ?? previous?.isUnderCap ?? true;
+  let isUnderCap: boolean;
+  if (twitchData) {
+    isUnderCap = twitchData.isUnderCap;
+  } else if (status.cap === 'capped') {
+    isUnderCap = false;
+  } else if (status.cap === 'available') {
+    isUnderCap = true;
+  } else {
+    isUnderCap = previous?.isUnderCap ?? true;
+  }
+  const parsedArp =
+    twitchData?.totalPoints ?? status.earnedArp ?? previous?.baseArp ?? 0;
+  const baseArp = isUnderCap ? parsedArp : Math.max(parsedArp, capArp);
   const remainingArp = isUnderCap ? Math.max(0, capArp - baseArp) : 0;
   return {
     scrapedAt: new Date().toISOString(),
@@ -256,7 +271,9 @@ export function twitchWatchRemainingMs(
   // Watch Twitch resets at 00:00 UTC — ignore earn counts scraped yesterday.
   let earned = 0;
   if (isFreshProgress && progress) {
-    earned = progress.baseArp;
+    earned = progress.isUnderCap
+      ? progress.baseArp
+      : Math.max(progress.baseArp, baseCap);
   } else if (state?.caps.watchTwitch === 'capped') {
     earned = baseCap;
   }
@@ -505,16 +522,53 @@ export function isControlCenterDocumentReady(document_: Document): boolean {
   return Boolean(document_.querySelector(CONTROL_CENTER_WIDGET));
 }
 
+/**
+ * Twitch/ToS widgets exist in SSR empty; dailyArpData (or filled status text)
+ * is the real paint. Scraping before that keeps stale GM watchTwitch.
+ */
+export function isControlCenterTwitchDataReady(document_: Document): boolean {
+  const status = document_
+    .querySelector('#control-center__twitch-arp-status')
+    ?.textContent?.trim();
+  if (status) {
+    return true;
+  }
+  return parseDailyArpTwitchData(document_) !== undefined;
+}
+
+export function isControlCenterActivityReady(document_: Document): boolean {
+  return (
+    isControlCenterDocumentReady(document_) &&
+    isControlCenterTwitchDataReady(document_)
+  );
+}
+
+export function controlCenterActivitySignature(document_: Document): string {
+  const caps = scrapeControlCenterCapsFromDocument(document_);
+  const twitch = scrapeWatchTwitchProgressFromDocument(document_);
+  return [
+    caps.watchTwitch,
+    caps.steamQuests,
+    caps.timeOnSite,
+    caps.dailyCalendar,
+    caps.dailyQuests,
+    twitch?.baseArp,
+    twitch?.isUnderCap,
+    twitch?.timeWatched,
+    twitch?.bonusArp,
+  ].join(':');
+}
+
 export async function waitForControlCenterDocument(
   timeoutMs = 12_000,
 ): Promise<void> {
-  if (isControlCenterDocumentReady(document)) {
+  if (isControlCenterActivityReady(document)) {
     return;
   }
   await new Promise<void>((resolve) => {
     let isSettled = false;
     const observer = new MutationObserver(() => {
-      if (isControlCenterDocumentReady(document)) {
+      if (isControlCenterActivityReady(document)) {
         finish();
       }
     });

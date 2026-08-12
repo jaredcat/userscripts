@@ -47,6 +47,35 @@ export function msUntilNextUtcMidnight(now = Date.now()): number {
 }
 
 /**
+ * Steam Quest week rolls at Monday 00:00 UTC.
+ */
+export function msUntilNextSteamQuestWeek(now = Date.now()): number {
+  const date = new Date(now);
+  const day = date.getUTCDay();
+  const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7;
+  return Math.max(
+    0,
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate() + daysUntilMonday,
+    ) - now,
+  );
+}
+
+/**
+ * True when a reset at `delayMs` from now still lands while this loadout is
+ * worn (`waitMs` until equip, then `horizonMs` lock — default 24h).
+ */
+export function isResetInWearWindow(
+  delayMs: number,
+  waitMs = 0,
+  horizonMs = COOLDOWN_MS,
+): boolean {
+  return delayMs > waitMs && delayMs <= waitMs + horizonMs;
+}
+
+/**
  * Soonest All-ARP% deadline in this 24h window (UTC reset, and community
  * unlock when ASCE ETA is inside the lock). Slots that unlock before this
  * can still complete Zorathian / HPC; slots locked past it cannot.

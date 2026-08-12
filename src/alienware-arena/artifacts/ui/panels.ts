@@ -6,6 +6,7 @@ import {
   saveSiteState,
   waitForControlCenterDocument,
   watchBattlePassPage,
+  watchControlCenterPage,
 } from '../siteState';
 import { buildActionPlan, renderActionPlan } from './actionPlan';
 import {
@@ -794,6 +795,19 @@ export async function initArtifactOptimizer(): Promise<void> {
   if (isControlCenterPage()) {
     ensureControlCenterHost();
     void injectControlCenterPanel();
+    watchControlCenterPage(async (state) => {
+      await applyAsceCommunityHours(state);
+      await saveSiteState(state);
+      const panel = document.querySelector<HTMLElement>(`#${CC_PANEL_ID}`);
+      if (!panel?.shadowRoot) {
+        return;
+      }
+      paintControlCenterPanel(
+        panel,
+        await gatherData({ remote: false }),
+        false,
+      );
+    });
   } else if (isArtifactsShowroomPage()) {
     ensureShowroomHost();
     void injectShowroomPanel();

@@ -34,7 +34,7 @@ import {
   pinnedEquippedArtifacts,
   resolveOwnedList,
 } from './context';
-import { communityEventArpInSwapWindow, scoreCombo } from './scoring';
+import { scoreCombo } from './scoring';
 import type {
   OptimizerContext,
   OptimizerResult,
@@ -201,20 +201,6 @@ export function findBestCombo(
   owned: OwnedArtifact[],
   context: OptimizerContext,
 ): ScoredCombo | undefined {
-  const shouldRequireAllArpForOneShot =
-    communityEventArpInSwapWindow(context.siteState) > 0 &&
-    canAssembleAllArp(owned);
-  if (shouldRequireAllArpForOneShot) {
-    const allArp = findBestComboBy(
-      owned,
-      context,
-      (combo) => combo.weeklyArp,
-      (combo) => combo.allArpPct > 0,
-    );
-    if (allArp) {
-      return allArp;
-    }
-  }
   const deferred = resolveDeferredAllArp(owned, context);
   if (deferred) {
     const equipped = currentLoadout(owned);
@@ -303,7 +289,28 @@ export function resolveDeferredAllArp(
 }
 
 /**
- * Pick the best owned 1–3 piece loadout by a primary metric, with totalScore as tie-break.
+ * When 24h ARP ties: prefer All-ARP% (Zorathian / HPC, Megumin community META),
+ * then the currently equipped set so we don't swap for no gain.
+ */
+function comboTieBreakDelta(
+  scored: ScoredCombo,
+  best: ScoredCombo,
+  equipped: OwnedArtifact[],
+): number {
+  if (scored.allArpPct !== best.allArpPct) {
+    return scored.allArpPct - best.allArpPct;
+  }
+  const isScoredEquipped = isSameLoadout(scored.artifacts, equipped);
+  const isBestEquipped = isSameLoadout(best.artifacts, equipped);
+  if (isScoredEquipped === isBestEquipped) {
+    return 0;
+  }
+  return isScoredEquipped ? 1 : -1;
+}
+
+/**
+ * Pick the best owned 1–3 piece loadout by a primary metric, with totalScore
+ * then All-ARP% / currently-equipped as tie-breaks.
  */
 export function findBestComboBy(
   owned: OwnedArtifact[],
@@ -315,6 +322,7 @@ export function findBestComboBy(
     return undefined;
   }
   const size = Math.min(3, owned.length);
+  const equipped = currentLoadout(owned);
   const pinned = pinnedEquippedArtifacts(
     owned,
     context.settings,
@@ -332,7 +340,10 @@ export function findBestComboBy(
     if (
       !best ||
       score > bestPrimary ||
-      (score === bestPrimary && scored.totalScore > best.totalScore)
+      (score === bestPrimary && scored.totalScore > best.totalScore) ||
+      (score === bestPrimary &&
+        scored.totalScore === best.totalScore &&
+        comboTieBreakDelta(scored, best, equipped) > 0)
     ) {
       best = scored;
       bestPrimary = score;

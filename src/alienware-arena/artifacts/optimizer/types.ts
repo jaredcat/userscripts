@@ -30,7 +30,8 @@ export interface RawBreakdownParts {
 export interface ScoredCombo {
   artifacts: OwnedArtifact[];
   /**
-  Estimated ARP for the current 24h swap window.
+  Estimated ARP for the 24h lock: remaining today plus UTC / Steam-week
+  resets that still land while this loadout is worn.
   */
   weeklyArp: number;
   marketplaceSavingsArp: number;

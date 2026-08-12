@@ -119,7 +119,11 @@ export function optimize(context: OptimizerContext): OptimizerResult {
 
 export type { ActivityLoadoutStats } from './bonuses';
 export { activityStatsForArtifacts } from './bonuses';
-export { buildContext } from './context';
+export {
+  buildContext,
+  isResetInWearWindow,
+  msUntilNextSteamQuestWeek,
+} from './context';
 export { describeArtifact } from './notes';
 export { scoreCombo } from './scoring';
 export type {
