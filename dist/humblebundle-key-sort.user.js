@@ -28,7 +28,7 @@
 		}
 	}, POLL_INTERVAL_MS);
 	function getKeyList() {
-		return document.querySelector(".content-choice-tiles") || document.querySelector(".key-list") || void 0;
+		return document.querySelector(".content-choice-tiles") ?? document.querySelector(".key-list") ?? void 0;
 	}
 	function isClaimed(element) {
 		return element.className.includes("claimed") || Boolean(element.querySelector(".redeemed"));
@@ -40,8 +40,8 @@
 			const isBClaimed = isClaimed(b);
 			if (isAClaimed && !isBClaimed) return 1;
 			if (!isAClaimed && isBClaimed) return -1;
-			const aText = a.textContent?.trim() ?? "";
-			const bText = b.textContent?.trim() ?? "";
+			const aText = a.textContent.trim();
+			const bText = b.textContent.trim();
 			return aText.localeCompare(bText);
 		});
 		keyList.replaceChildren(...toSort);

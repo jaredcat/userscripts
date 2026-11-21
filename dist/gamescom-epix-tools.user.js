@@ -107,7 +107,7 @@
         cursor: pointer;
       `;
 				button.addEventListener("click", action);
-				this.toolbar?.append(button);
+				this.toolbar.append(button);
 			}
 			document.body.append(this.toolbar);
 		}

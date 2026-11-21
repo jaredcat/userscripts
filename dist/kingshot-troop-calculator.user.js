@@ -47,7 +47,7 @@
 		return [...pageWindow.document.querySelectorAll("input")];
 	}
 	function findSectionRootByHeading(rx) {
-		const h = [...pageWindow.document.querySelectorAll("h2, h3")].find((element) => rx.test(element.textContent?.trim() ?? ""));
+		const h = [...pageWindow.document.querySelectorAll("h2, h3")].find((element) => rx.test(element.textContent.trim()));
 		return h ? h.closest("[class*=\"rounded-lg\"], [class*=\"rounded\"], section, article") ?? h.parentElement : void 0;
 	}
 	function getCalculatorFieldMap() {
@@ -164,7 +164,7 @@
 			const raw = localStorage.getItem(STORAGE_KEY_FIELDS);
 			if (raw) {
 				const p = JSON.parse(raw);
-				if (p?.fields && typeof p.fields === "object") return p.fields;
+				if (p.fields && typeof p.fields === "object") return p.fields;
 			}
 			const legacy = load();
 			if (legacy.length >= FIELD_ORDER.length) {
@@ -548,8 +548,8 @@
 	function pickRemainderIndex(candidates, remainders, bias, preferIndex, direction) {
 		const sorted = [...candidates];
 		sorted.sort((a, b) => {
-			const ra = (remainders[a] ?? 0) + (bias[a] ?? 0);
-			const rb = (remainders[b] ?? 0) + (bias[b] ?? 0);
+			const ra = remainders[a] + bias[a];
+			const rb = remainders[b] + bias[b];
 			if (ra !== rb) return direction === "desc" ? rb - ra : ra - rb;
 			if (preferIndex !== void 0) {
 				if (a === preferIndex && b !== preferIndex) return -1;
@@ -630,38 +630,38 @@
 			...actual.arc < warnAgainst.arc ? ["⚠ Low archers"] : []
 		];
 		td.innerHTML = `
-      <span class="ks-pct-badge ks-pct-inf">I: ${display.inf}%</span>
-      <span class="ks-pct-badge ks-pct-cav">C: ${display.cav}%</span>
-      <span class="ks-pct-badge ks-pct-arc">A: ${display.arc}%</span>
+      <span class="ks-pct-badge ks-pct-inf">I: ${String(display.inf)}%</span>
+      <span class="ks-pct-badge ks-pct-cav">C: ${String(display.cav)}%</span>
+      <span class="ks-pct-badge ks-pct-arc">A: ${String(display.arc)}%</span>
       ${warns.map((w) => `<span class="ks-pct-warn">${w}</span>`).join("")}
     `;
 		return td;
 	}
 	function findSplitTable(pattern) {
-		const h3 = [...document.querySelectorAll("h3")].find((element) => pattern.test(element.textContent?.trim() ?? ""));
+		const h3 = [...document.querySelectorAll("h3")].find((element) => pattern.test(element.textContent.trim()));
 		if (!h3) return void 0;
 		const card = h3.closest("[class*=\"bg-white\"], [class*=\"bg-gray-8\"], [class*=\"rounded-lg\"]");
 		if (card) {
 			const table = card.querySelector("table");
 			if (table) return table;
 		}
-		return [...document.querySelectorAll("table")].find((t) => /infantry/i.test(t.textContent ?? "") && /archers/i.test(t.textContent ?? ""));
+		return [...document.querySelectorAll("table")].find((t) => /infantry/i.test(t.textContent) && /archers/i.test(t.textContent));
 	}
 	function getTroopRow(table, label) {
 		for (const row of table.querySelectorAll("tr")) {
 			if (row.classList.contains("ks-pct-row")) continue;
-			if ((row.cells[0]?.textContent?.trim().toLowerCase() ?? "") === label) return row;
+			if ((row.cells[0]?.textContent.trim().toLowerCase() ?? "") === label) return row;
 		}
 	}
 	function getTroopRowLoose(table, includes) {
 		for (const row of table.querySelectorAll("tr")) {
 			if (row.classList.contains("ks-pct-row")) continue;
-			if ((row.cells[0]?.textContent?.trim().toLowerCase() ?? "").includes(includes)) return row;
+			if ((row.cells[0]?.textContent.trim().toLowerCase() ?? "").includes(includes)) return row;
 		}
 	}
 	function ensureBearRallyColumn(table) {
 		const headerRow = table.querySelector("tr");
-		if (!headerRow || headerRow.cells.length < 3 || headerRow.cells[1]?.textContent?.trim() === "Rally") return;
+		if (!headerRow || headerRow.cells.length < 3 || headerRow.cells[1]?.textContent.trim() === "Rally") return;
 		for (const row of table.querySelectorAll("tr")) {
 			if (row.classList.contains("ks-pct-row")) continue;
 			const cell = row.insertCell(1);
@@ -852,7 +852,7 @@
 		}
 	}
 	function processTrainingTable(v) {
-		const h3 = [...document.querySelectorAll("h3")].find((element) => /training focus/i.test(element.textContent ?? ""));
+		const h3 = [...document.querySelectorAll("h3")].find((element) => /training focus/i.test(element.textContent));
 		if (!h3) return;
 		const card = h3.closest("[class*=\"bg-white\"], [class*=\"bg-gray-8\"], [class*=\"rounded-lg\"]");
 		if (!card) return;
@@ -860,7 +860,7 @@
 		if (!table) return;
 		const presets = buildTrainingPresets(v);
 		for (const row of table.querySelectorAll("tr")) {
-			const label = row.cells[0]?.textContent?.trim();
+			const label = row.cells[0]?.textContent.trim();
 			if (!label || /^preset$/i.test(label)) continue;
 			const preset = presets.find((p) => p.pattern.test(label));
 			if (!preset) continue;
@@ -871,16 +871,16 @@
 		return /Targets are computed/i.test(text) && text.length < 500;
 	}
 	function updateTrainingFocusExplainer(v) {
-		const h3 = [...document.querySelectorAll("h3")].find((element) => /training focus/i.test(element.textContent ?? ""));
+		const h3 = [...document.querySelectorAll("h3")].find((element) => /training focus/i.test(element.textContent));
 		if (!h3) return;
 		const card = h3.closest("[class*=\"bg-white\"], [class*=\"bg-gray-8\"], [class*=\"rounded-lg\"]");
 		if (!card) return;
 		const bear = v.bearSquads;
 		const vik = v.vikSquads;
 		const balancedSquads = Math.max(bear, vik);
-		const element = [...card.querySelectorAll("p")].find((node) => isExplainerText(node.textContent ?? ""));
+		const element = [...card.querySelectorAll("p")].find((node) => isExplainerText(node.textContent));
 		if (!element) return;
-		element.textContent = `Targets are computed from ideal march counts (full solo capacity per march). Balanced uses ${balancedSquads} (highest of Bear or Viking). Bear uses ${bear} squads plus 1 rally (${bear + 1} marches at your Bear preset). Vikings uses ${vik}. Gaps are non-negative.`;
+		element.textContent = `Targets are computed from ideal march counts (full solo capacity per march). Balanced uses ${String(balancedSquads)} (highest of Bear or Viking). Bear uses ${String(bear)} squads plus 1 rally (${String(bear + 1)} marches at your Bear preset). Vikings uses ${String(vik)}. Gaps are non-negative.`;
 	}
 	function run() {
 		injectStyles();
@@ -892,7 +892,6 @@
 		processTrainingTable(v);
 		updateTrainingFocusExplainer(v);
 	}
-	document.addEventListener("input", onUserInput, { capture: true });
 	document.addEventListener("change", onUserInput, { capture: true });
 	document.addEventListener("paste", onPasteCapture, { capture: true });
 	function waitForReactThenRestore(maxMs = 1e4) {

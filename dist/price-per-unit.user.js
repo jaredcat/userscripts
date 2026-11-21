@@ -217,12 +217,16 @@
 			buttonAsc.type = "button";
 			buttonAsc.textContent = "Unit price ↑";
 			buttonAsc.style.cssText = "margin-left:8px;cursor:pointer;padding:4px 8px;";
-			buttonAsc.addEventListener("click", () => this.sortListingByUnitPrice("asc"));
+			buttonAsc.addEventListener("click", () => {
+				this.sortListingByUnitPrice("asc");
+			});
 			const buttonDesc = document.createElement("button");
 			buttonDesc.type = "button";
 			buttonDesc.textContent = "Unit price ↓";
 			buttonDesc.style.cssText = "margin-left:4px;cursor:pointer;padding:4px 8px;";
-			buttonDesc.addEventListener("click", () => this.sortListingByUnitPrice("desc"));
+			buttonDesc.addEventListener("click", () => {
+				this.sortListingByUnitPrice("desc");
+			});
 			wrap.append(buttonAsc, buttonDesc);
 			return wrap;
 		}
@@ -388,11 +392,11 @@
 			getSizeText(container) {
 				const keys = container.querySelectorAll(".variants-fieldset__legend-key");
 				for (const key of keys) {
-					if (!key.textContent?.toLowerCase().includes("size")) continue;
+					if (!key.textContent.toLowerCase().includes("size")) continue;
 					const value = key.parentElement?.querySelector(".variants-fieldset__legend-value");
 					if (value?.textContent) return value.textContent.trim();
 				}
-				return container.querySelector("h1")?.textContent?.trim() ?? "";
+				return container.querySelector("h1")?.textContent.trim() ?? "";
 			}
 			async addPricePerUnit() {
 				await new Promise((resolve) => setTimeout(resolve, PRODUCT_PAGE_WAIT_MS));
@@ -410,11 +414,12 @@
 			}
 			addPpuToCard(card) {
 				if (card.querySelector(".price-per-unit")) return;
-				const sizeInfo = parseLastSize(card.querySelector(".sparky-c-product-card__title")?.textContent?.trim() ?? "");
+				const title = card.querySelector(".sparky-c-product-card__title")?.textContent.trim();
+				const sizeInfo = parseLastSize(title ?? "");
 				if (!sizeInfo) return;
 				const priceGroup = card.querySelector(".sparky-c-product-card__price-group");
 				if (!priceGroup) return;
-				const priceText = priceGroup.textContent?.trim() ?? "";
+				const priceText = priceGroup.textContent.trim();
 				if (priceText.includes("-")) return;
 				const price = parsePrice(priceText);
 				if (!Number.isFinite(price)) return;
@@ -448,7 +453,7 @@
 			extractProductInfo(element) {
 				const priceElement = element.querySelector(PetSmartPricePerUnit.PRICE_SELECTOR);
 				if (!priceElement) return void 0;
-				const price = parsePrice((priceElement.querySelector(".sparky-c-price--sale")?.textContent || priceElement.textContent)?.trim() || "");
+				const price = parsePrice(priceElement.querySelector(".sparky-c-price--sale")?.textContent.trim() ?? priceElement.textContent.trim());
 				if (!Number.isFinite(price)) return void 0;
 				const sizeInfo = parseSize(this.getSizeText(element));
 				if (!sizeInfo) return void 0;

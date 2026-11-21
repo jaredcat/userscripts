@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SteamTrade Matcher Userscript
 // @namespace    https://www.steamtradematcher.com
-// @version      2.1.6
+// @version      2.4.0
 // @author       Robou / Tithen-Firion / jaredcat
 // @description  Allows quicker trade offers by automatically adding cards as matched by SteamTrade Matcher
 // @license      AGPL-3.0-or-later
@@ -11,18 +11,32 @@
 // @match        *://steamcommunity.com/tradeoffer/new/*source=stm*
 // @match        *://*.steamtradematcher.com/*
 // @connect      steamtradematcher.com
+// @connect      steamcommunity.com
 // @grant        GM.deleteValue
 // @grant        GM.getValue
+// @grant        GM.info
 // @grant        GM.setValue
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // ==/UserScript==
 
 (async function() {
 	"use strict";
 	var _GM = (() => typeof GM != "undefined" ? GM : void 0)();
-	var MS_PER_DAY = 864e5;
+	var _GM_xmlhttpRequest = (() => typeof GM_xmlhttpRequest != "undefined" ? GM_xmlhttpRequest : void 0)();
+	var SECONDS_PER_MINUTE = 60;
+	var MS_PER_SECOND = 1e3;
+	var MS_PER_DAY = 1440 * SECONDS_PER_MINUTE * MS_PER_SECOND;
 	var TRADE_PARTY_SIZE = 2;
 	var UINT32_RANGE = 4294967296;
+	var INVENTORY_PAGE_SIZE = 2e3;
+	var INVENTORY_PAGE_DELAY = 2e3;
+	var INVENTORY_REQUEST_TIMEOUT = 3e4;
+	var LOADER_CONFIG = {
+		retryDelay: 45e3,
+		maxRetries: 3
+	};
+	var HTTP_OK = 200;
 	var CONFIG = {
 		WEBSITE_HOSTS: ["www.steamtradematcher.com"],
 		STEAM: {
@@ -30,11 +44,11 @@
 			CONTEXT_ID: 6
 		},
 		TRADE: {
-			CHUNK_SIZE: 100,
-			WINDOW_DELAY: 1e3,
+			CHUNK_SIZE: 150,
+			WINDOW_DELAY: 2e4,
 			INVENTORY_CHECK_INTERVAL: 500,
-			INVENTORY_CHECK_TIMEOUT: 6e4,
-			INVENTORY_CHECK_MAX_RETRIES: 120
+			INVENTORY_MAX_WAIT: 3e5,
+			INVENTORY_STALL_TIMEOUT: 9e4
 		},
 		COOKIE: { EXPIRY_DAYS: 15 },
 		DEFAULT_SETTINGS: {
@@ -190,18 +204,26 @@
 		div.textContent = text;
 		return div.getHTML();
 	}
-	function getUrlParameters() {
-		const url = new URL(location.href);
+	function parseTradeItems(url) {
 		const you = url.searchParams.getAll("you[]");
 		const them = url.searchParams.getAll("them[]");
 		if (you.length > 0 || them.length > 0) return {
 			you,
 			them
 		};
-		const parameters = Object.fromEntries(url.searchParams);
+		const youLegacy = url.searchParams.get("you");
+		const themLegacy = url.searchParams.get("them");
 		return {
-			you: parameters.you?.split(";") || [],
-			them: parameters.them?.split(";") || []
+			you: youLegacy ? youLegacy.split(";") : [],
+			them: themLegacy ? themLegacy.split(";") : []
+		};
+	}
+	function getUrlParameters() {
+		const url = new URL(location.href);
+		const isGift = url.searchParams.get("gift") === "1";
+		return {
+			...parseTradeItems(url),
+			isGift
 		};
 	}
 	var CookieManager = {
@@ -218,110 +240,92 @@
 			setDocumentCookie(`strTradeLastInventoryContext=${cookieValue}; expires=${expiry.toUTCString()}; path=/tradeoffer/`);
 		}
 	};
-	var InventoryValidator = {
-		validateInventories(yourInventory, theirInventory) {
-			if (Object.keys(yourInventory).length === 0 || Object.keys(theirInventory).length === 0) throw new Error("Invalid inventory state");
-		},
-		validateCardTypes(yourTypes, theirTypes) {
-			const remainingTypes = [...yourTypes];
-			for (const type of theirTypes) {
-				const index = remainingTypes.indexOf(type);
-				if (index === -1) throw new Error("Not a 1:1 trade");
-				remainingTypes.splice(index, 1);
-			}
+	function pickCards(settings, user, requestedCards) {
+		const inventory = user.rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory;
+		if (!inventory) throw new Error("Inventory is unavailable");
+		inventory.BuildInventoryDisplayElements();
+		const available = {};
+		const items = Object.values(inventory.rgInventory ?? {});
+		for (const item of items) {
+			if (!requestedCards.includes(item.classid)) continue;
+			(available[item.classid] ??= []).push(item);
 		}
-	};
+		if (settings.ORDER === "SORT") for (const cards of Object.values(available)) cards.sort((a, b) => Number(b.id) - Number(a.id));
+		const picked = [];
+		for (const classId of requestedCards) {
+			const cards = available[classId];
+			if (!cards || cards.length === 0) continue;
+			const index = settings.ORDER === "RANDOM" ? Math.floor(randomFloat() * cards.length) : 0;
+			const [card] = cards.splice(index, 1);
+			if (card) picked.push({
+				type: card.type,
+				element: card.element,
+				id: card.id
+			});
+		}
+		return picked;
+	}
+	function countByType(cards) {
+		const counts = {};
+		for (const card of cards) counts[card.type] = (counts[card.type] ?? 0) + 1;
+		return counts;
+	}
+	function balanceByType(picked) {
+		const yourCounts = countByType(picked[0] ?? []);
+		const theirCounts = countByType(picked[1] ?? []);
+		const room = {};
+		for (const [type, value] of Object.entries(yourCounts)) room[type] = Math.min(value, theirCounts[type] ?? 0);
+		return picked.map((cards) => {
+			const sideRoom = { ...room };
+			return cards.filter((card) => {
+				const remaining = sideRoom[card.type] ?? 0;
+				sideRoom[card.type] = remaining - 1;
+				return remaining > 0;
+			});
+		});
+	}
 	var TradeHandler = class {
 		settings;
 		users;
 		cards;
-		oldCookie;
-		constructor(settings, users, cards) {
+		isGift;
+		constructor(settings, users, cards, isGift) {
 			this.settings = settings;
 			this.users = users;
 			this.cards = cards;
-			this.oldCookie = CookieManager.getInventoryCookie();
+			this.isGift = isGift;
 		}
-		validateTrade() {
-			const [yourCards, theirCards] = this.cards;
-			if (!yourCards || !theirCards) throw new Error("Invalid cards array");
-			if (this.users.length < TRADE_PARTY_SIZE) throw new Error("Invalid users array");
-			const yourInventory = this.users[0]?.rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory?.rgInventory || {};
-			const theirInventory = this.users[1]?.rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory?.rgInventory || {};
-			InventoryValidator.validateInventories(yourInventory, theirInventory);
-			const validCards = this.findValidCards(yourInventory, theirInventory, yourCards, theirCards);
-			this.cards = [validCards.yours, validCards.theirs];
-			if (validCards.yours.length === 0) throw new Error("No valid matching cards found in both inventories");
-			return true;
+		getUser(index) {
+			const user = this.users[index];
+			if (!user) throw new Error(`User at index ${String(index)} is undefined`);
+			return user;
 		}
-		findValidCards(yourInventory, theirInventory, yourCards, theirCards) {
-			const validYourCards = new Set();
-			const validTheirCards = new Set();
-			for (const classId of yourCards) if (Object.values(yourInventory).some((item) => item.classid === classId)) validYourCards.add(classId);
-			for (const classId of theirCards) if (Object.values(theirInventory).some((item) => item.classid === classId)) validTheirCards.add(classId);
-			const matchingYourCards = [];
-			const matchingTheirCards = [];
-			for (const [index, yourCard] of yourCards.entries()) {
-				const theirCard = theirCards[index];
-				if (yourCard && theirCard && validYourCards.has(yourCard) && validTheirCards.has(theirCard)) {
-					matchingYourCards.push(yourCard);
-					matchingTheirCards.push(theirCard);
+		addCards() {
+			const requested = this.cards;
+			const picked = this.isGift ? [pickCards(this.settings, this.getUser(0), requested[0] ?? []), []] : requested.map((cards, index) => pickCards(this.settings, this.getUser(index), cards));
+			const kept = this.isGift ? picked : balanceByType(picked);
+			if ((kept[0]?.length ?? 0) === 0) {
+				unsafeWindow.ShowAlertDialog("Items missing", this.isGift ? "None of the selected items are still in your inventory. Script aborting." : "None of the matched items are still available on both sides. Script aborting.");
+				throw new Error("Cards missing");
+			}
+			for (const cards of kept) for (const card of cards) unsafeWindow.MoveItemToTrade(card.element);
+			if (!this.isGift) {
+				const yourSlots = document.querySelectorAll("#your_slots .has_item");
+				const theirSlots = document.querySelectorAll("#their_slots .has_item");
+				if (yourSlots.length !== theirSlots.length) {
+					unsafeWindow.ShowAlertDialog("Not 1:1 trade", "This is not a valid 1:1 trade. Script aborting.");
+					throw new Error("Not 1:1 trade");
 				}
 			}
-			return {
-				yours: matchingYourCards,
-				theirs: matchingTheirCards
-			};
-		}
-		processCards() {
-			const cardTypes = [[], []];
-			for (let index = 0; index < TRADE_PARTY_SIZE; index++) {
-				const user = this.users[index];
-				if (!user) throw new Error(`User at index ${index} is undefined`);
-				const inventory = user.rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory;
-				if (!inventory) throw new Error(`Inventory for user ${index} is undefined`);
-				inventory.BuildInventoryDisplayElements();
-				const cards = this.cards[index];
-				if (!cards) throw new Error(`Cards array at index ${index} is undefined`);
-				const cardMapping = this.createCardMapping(inventory.rgInventory || {}, cards);
-				const cardTypeArray = cardTypes[index];
-				if (!cardTypeArray) throw new Error(`Card types array at index ${index} is undefined`);
-				this.addCardsToTrade(cardMapping, cards, cardTypeArray);
-			}
-			const yourTypes = cardTypes[0];
-			const theirTypes = cardTypes[1];
-			if (!yourTypes || !theirTypes) throw new Error("Card types arrays are invalid");
-			InventoryValidator.validateCardTypes(yourTypes, theirTypes);
-			return true;
-		}
-		createCardMapping(inventory, requestedCards) {
-			const mapping = {};
-			for (const item of Object.values(inventory)) {
-				if (!requestedCards.includes(item.classid)) continue;
-				mapping[item.classid] ??= [];
-				const cardArray = mapping[item.classid];
-				if (cardArray) cardArray.push({
-					type: item.type,
-					element: item.element,
-					id: item.id
-				});
-			}
-			if (this.settings.ORDER === "SORT") {
-				for (const cards of Object.values(mapping)) if (cards) cards.sort((a, b) => Number(b.id) - Number(a.id));
-			}
-			return mapping;
-		}
-		addCardsToTrade(mapping, requestedCards, typeArray) {
-			for (const classid of requestedCards) {
-				const availableCards = mapping[classid] || [];
-				if (availableCards.length === 0) throw new Error("Missing cards");
-				const index = this.settings.ORDER === "RANDOM" ? Math.floor(randomFloat() * availableCards.length) : 0;
-				const selectedCard = availableCards[index];
-				if (!selectedCard) throw new Error("Selected card is undefined");
-				unsafeWindow.MoveItemToTrade(selectedCard.element);
-				typeArray.push(selectedCard.type);
-				availableCards.splice(index, 1);
-			}
+			const leftOut = requested.map((cards, index) => cards.length - (kept[index]?.length ?? 0));
+			const yourLeftOut = leftOut[0] ?? 0;
+			const theirLeftOut = leftOut[1] ?? 0;
+			const isIncomplete = yourLeftOut > 0 || theirLeftOut > 0;
+			if (isIncomplete) unsafeWindow.ShowAlertDialog("Items missing", this.isGift ? `${String(yourLeftOut)} of the selected item(s) are no longer in your inventory and were left out.` : `Some items are no longer available. ${String(yourLeftOut)} item(s) removed from each side.`);
+			this.injectPostTradeHandler();
+			if (isIncomplete || this.isGift || !this.settings.AUTO_SEND) return;
+			unsafeWindow.ToggleReady(true);
+			unsafeWindow.CTradeOfferStateManager.ConfirmTradeOffer();
 		}
 		injectPostTradeHandler() {
 			if (this.settings.DO_AFTER_TRADE === "NOTHING") return;
@@ -340,37 +344,216 @@
     `;
 			document.body.append(script);
 		}
-		completeTrade() {
-			if (!this.settings.AUTO_SEND) return;
-			unsafeWindow.ToggleReady(true);
-			unsafeWindow.CTradeOfferStateManager.ConfirmTradeOffer();
-		}
 	};
+	function stmInventoryLoader(config) {
+		const w = globalThis;
+		const originalRequest = w.RequestFullInventory;
+		const originalContinue = w.ContinueFullInventoryRequestIfNecessary;
+		if (typeof originalRequest !== "function" || typeof originalContinue !== "function") return;
+		const SETTLE_DELAY = 1500;
+		const RETRY_TICK = 1e3;
+		const MS = 1e3;
+		const TOO_MANY_REQUESTS = 429;
+		const OK = 200;
+		const LABELS = {
+			you: "Your inventory",
+			them: "Their inventory"
+		};
+		const sides = {};
+		const loader = {
+			failed: void 0,
+			lastUpdate: Date.now()
+		};
+		w.STM_INVENTORY_LOADER = loader;
+		let box;
+		const describe = (side) => {
+			switch (side.status) {
+				case "done": return `done, ${String(side.items)} items`;
+				case "failed": return `<span style="color:#ff7b7b">failed (${side.error})</span>`;
+				case "waiting": {
+					const wait = Math.ceil(Math.max(0, side.retryAt - Date.now()) / MS);
+					return `Steam is limiting requests, retrying page ${String(side.pages + 1)} in ${String(wait)} s (attempt ${String(side.retries)}/${String(config.maxRetries)})`;
+				}
+				default: return `loading page ${String(side.pages + 1)}, ${String(side.items)} items so far`;
+			}
+		};
+		const render = () => {
+			loader.lastUpdate = Date.now();
+			if (!box) {
+				box = document.createElement("div");
+				box.style.cssText = "position:fixed;top:12px;right:12px;z-index:10000;max-width:360px;padding:10px 14px;background:#1b2838;color:#c7d5e0;border:1px solid #66c0f4;border-radius:4px;font:13px/1.5 Arial,Helvetica,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.6)";
+				document.body.append(box);
+			}
+			const keys = Object.keys(sides);
+			const lines = keys.map((key) => {
+				const side = sides[key];
+				return side ? `${LABELS[key] ?? key}: ${describe(side)}` : "";
+			});
+			box.innerHTML = ["<strong style=\"color:#fff\">SteamTrade Matcher: loading inventories</strong>", ...lines].join("<br>");
+			const isAllDone = () => keys.every((key) => sides[key]?.status === "done");
+			if (!isAllDone()) return;
+			setTimeout(() => {
+				if (!box || !isAllDone()) return;
+				box.remove();
+				box = void 0;
+			}, SETTLE_DELAY);
+		};
+		const retryLater = (side, retry) => {
+			const remaining = side.retryAt - Date.now();
+			render();
+			if (remaining > 0) {
+				setTimeout(retryLater, Math.min(RETRY_TICK, remaining), side, retry);
+				return;
+			}
+			side.status = "loading";
+			render();
+			retry();
+		};
+		w.RequestFullInventory = (...requestArguments) => {
+			const side = String(requestArguments[0]).includes("partnerinventory") ? "them" : "you";
+			sides[side] = {
+				status: "loading",
+				pages: 0,
+				items: 0,
+				retries: 0,
+				retryAt: 0,
+				error: ""
+			};
+			render();
+			originalRequest.apply(globalThis, requestArguments);
+		};
+		w.ContinueFullInventoryRequestIfNecessary = (transport, merged, url, parameters, ...callbacks) => {
+			const key = url.includes("partnerinventory") ? "them" : "you";
+			const side = sides[key];
+			const proceed = () => {
+				originalContinue.call(globalThis, transport, merged, url, parameters, ...callbacks);
+			};
+			if (!side) {
+				proceed();
+				return;
+			}
+			const json = transport.responseJSON;
+			if (json?.success) {
+				side.pages += 1;
+				side.retries = 0;
+				side.items += Object.keys(json.rgInventory ?? {}).length;
+				side.status = json.more ? "loading" : "done";
+				render();
+				proceed();
+				return;
+			}
+			if (transport.status === TOO_MANY_REQUESTS && side.retries < config.maxRetries) {
+				side.retries += 1;
+				side.status = "waiting";
+				side.retryAt = Date.now() + config.retryDelay;
+				retryLater(side, () => {
+					new w.Ajax.Request(url, {
+						method: "get",
+						parameters,
+						onComplete: (retry) => {
+							w.ContinueFullInventoryRequestIfNecessary?.(retry, merged, url, parameters, ...callbacks);
+						}
+					});
+				});
+				return;
+			}
+			side.status = "failed";
+			side.error = transport.status === OK ? json?.error ?? "Steam returned no inventory" : `HTTP ${String(transport.status)}`;
+			loader.failed = `${LABELS[key] ?? key} could not be loaded (${side.error}).`;
+			render();
+			proceed();
+		};
+	}
+	function injectInventoryLoader() {
+		const script = document.createElement("script");
+		script.textContent = `(${stmInventoryLoader.toString()})(${JSON.stringify(LOADER_CONFIG)});`;
+		document.body.append(script);
+	}
+	function gmRequest(details) {
+		return new Promise((resolve, reject) => {
+			_GM_xmlhttpRequest({
+				...details,
+				onload: resolve,
+				onerror: () => {
+					reject(new Error("Steam could not be reached"));
+				},
+				ontimeout: () => {
+					reject(new Error("Steam did not answer in time"));
+				}
+			});
+		});
+	}
+	async function fetchInventoryPages(steamId) {
+		const pages = [];
+		let startAssetId;
+		do {
+			let url = `https://steamcommunity.com/inventory/${steamId}/${String(CONFIG.STEAM.APP_ID)}/${String(CONFIG.STEAM.CONTEXT_ID)}?l=english&count=${String(INVENTORY_PAGE_SIZE)}`;
+			if (startAssetId) {
+				url += `&start_assetid=${startAssetId}`;
+				await new Promise((resolve) => {
+					setTimeout(resolve, INVENTORY_PAGE_DELAY);
+				});
+			}
+			const response = await gmRequest({
+				method: "GET",
+				url,
+				timeout: INVENTORY_REQUEST_TIMEOUT
+			});
+			if (response.status !== HTTP_OK) throw new Error(`Steam answered HTTP ${String(response.status)}`);
+			const page = JSON.parse(response.responseText);
+			if (page.success !== 1) throw new Error("Steam returned no inventory");
+			pages.push(page);
+			startAssetId = page.more_items ? page.last_assetid : void 0;
+		} while (startAssetId);
+		return pages;
+	}
+	function scriptVersion() {
+		return _GM.info.script.version;
+	}
+	function listenToInventoryRequests() {
+		document.documentElement.dataset.stmUserscriptInventory = "1";
+		document.documentElement.dataset.stmUserscriptVersion = scriptVersion();
+		document.addEventListener("stm:fetch-inventory", (event) => {
+			(async () => {
+				const request = JSON.parse(event.detail);
+				const answer = { requestId: request.requestId };
+				try {
+					answer.pages = await fetchInventoryPages(request.steamId);
+				} catch (error) {
+					answer.error = String(error instanceof Error ? error.message : error);
+				}
+				document.dispatchEvent(new CustomEvent("stm:inventory-fetched", { detail: JSON.stringify(answer) }));
+			})();
+		});
+	}
 	var TradeSplitter = class {
 		bindEvents() {
 			document.addEventListener("click", (event) => {
-				const tradeButton = event.target?.closest(".user-results > .card-header > div > .btn") ?? void 0;
-				if (!tradeButton) return;
-				event.preventDefault();
-				this.handleTradeClick(tradeButton);
+				this.handleTradeClick(event);
 			});
 		}
-		async handleTradeClick(button) {
-			const url = new URL(button.href);
-			const youParameters = url.searchParams.getAll("you[]");
-			const themParameters = url.searchParams.getAll("them[]");
-			if (youParameters.length < CONFIG.TRADE.CHUNK_SIZE && themParameters.length < CONFIG.TRADE.CHUNK_SIZE) {
-				window.open(button.href, "_blank");
-				return;
-			}
-			for (let index = 0; index < youParameters.length; index += CONFIG.TRADE.CHUNK_SIZE) {
-				this.openTradeWindow(url, youParameters, themParameters, index);
+		handleTradeClick(event) {
+			const tradeButton = event.target?.closest(".user-results > .card-header > div > .btn") ?? void 0;
+			if (!tradeButton) return;
+			const url = new URL(tradeButton.href);
+			const { you, them } = parseTradeItems(url);
+			if (you.length <= CONFIG.TRADE.CHUNK_SIZE && them.length <= CONFIG.TRADE.CHUNK_SIZE) return;
+			event.preventDefault();
+			this.splitTrade(url, you, them);
+		}
+		async splitTrade(baseUrl, youParameters, themParameters) {
+			const total = Math.max(youParameters.length, themParameters.length);
+			for (let index = 0; index < total; index += CONFIG.TRADE.CHUNK_SIZE) {
+				this.openTradeWindow(baseUrl, youParameters, themParameters, index);
 				await new Promise((resolve) => setTimeout(resolve, CONFIG.TRADE.WINDOW_DELAY));
 			}
 		}
 		openTradeWindow(baseUrl, youParameters, themParameters, startIndex) {
 			const newUrl = new URL(baseUrl);
-			newUrl.search = "";
+			newUrl.searchParams.delete("you[]");
+			newUrl.searchParams.delete("them[]");
+			newUrl.searchParams.delete("you");
+			newUrl.searchParams.delete("them");
 			const youChunk = youParameters.slice(startIndex, startIndex + CONFIG.TRADE.CHUNK_SIZE);
 			const themChunk = themParameters.slice(startIndex, startIndex + CONFIG.TRADE.CHUNK_SIZE);
 			for (const value of youChunk) newUrl.searchParams.append("you[]", value);
@@ -399,12 +582,13 @@
 		return settings;
 	}
 	async function saveSettings() {
-		const message = document.querySelector("#trade-message")?.value?.trim() || CONFIG.DEFAULT_SETTINGS.MESSAGE;
-		if (message.length > CONFIG.VALIDATION.MESSAGE_MAX_LENGTH) throw new Error(`Message exceeds maximum length of ${CONFIG.VALIDATION.MESSAGE_MAX_LENGTH} characters`);
+		const trimmedMessage = document.querySelector("#trade-message")?.value.trim() ?? "";
+		const message = trimmedMessage.length > 0 ? trimmedMessage : CONFIG.DEFAULT_SETTINGS.MESSAGE;
+		if (message.length > CONFIG.VALIDATION.MESSAGE_MAX_LENGTH) throw new Error(`Message exceeds maximum length of ${String(CONFIG.VALIDATION.MESSAGE_MAX_LENGTH)} characters`);
 		const doAfterTrade = document.querySelector("#after-trade")?.value;
-		if (!isValidDoAfterTrade(doAfterTrade)) throw new Error(`Invalid DO_AFTER_TRADE value: ${doAfterTrade}`);
+		if (!isValidDoAfterTrade(doAfterTrade)) throw new Error(`Invalid DO_AFTER_TRADE value: ${String(doAfterTrade)}`);
 		const order = document.querySelector("#cards-order")?.value;
-		if (!isValidCardOrder(order)) throw new Error(`Invalid ORDER value: ${order}`);
+		if (!isValidCardOrder(order)) throw new Error(`Invalid ORDER value: ${String(order)}`);
 		const settings = {
 			MESSAGE: message,
 			DO_AFTER_TRADE: doAfterTrade,
@@ -555,72 +739,92 @@
 		bindSettingsEventHandlers();
 		toggleSettingsVisibility();
 	}
+	function getUserContext(user) {
+		return user?.rgContexts[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID];
+	}
+	function getUserInventory(user) {
+		return getUserContext(user)?.inventory;
+	}
 	function areInventoriesReady(users) {
 		return users.every((user) => {
-			const inventory = user.rgContexts?.[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory;
-			if (inventory) {
-				if (!inventory.rgInventory) inventory.BuildInventoryDisplayElements();
-				return Object.keys(inventory.rgInventory || {}).length > 0 && user.cLoadsInFlight === 0;
-			}
-			return false;
+			const inventory = getUserInventory(user);
+			if (!inventory || inventory.BIsPendingInventory?.()) return false;
+			if (!inventory.rgInventory) inventory.BuildInventoryDisplayElements();
+			return Object.keys(inventory.rgInventory ?? {}).length > 0 && user.cLoadsInFlight === 0;
 		});
 	}
-	function requestMissingInventories(users) {
-		for (const user of users) {
-			if (user.rgContexts?.[CONFIG.STEAM.APP_ID]?.[CONFIG.STEAM.CONTEXT_ID]?.inventory) continue;
+	function requestMissingInventories(users, requested) {
+		for (let index = 0; index < users.length; index++) {
+			const user = users[index];
+			if (!user || requested.has(index) || user.cLoadsInFlight !== 0) continue;
+			const context = getUserContext(user);
+			if (!context || context.inventory) continue;
 			$J("#trade_inventory_unavailable").show();
 			$J("#trade_inventory_pending").show();
+			requested.add(index);
 			user.loadInventory(CONFIG.STEAM.APP_ID, CONFIG.STEAM.CONTEXT_ID);
 		}
 	}
-	async function waitForInventories() {
+	async function waitForInventories(isGift) {
+		const needed = isGift ? 1 : TRADE_PARTY_SIZE;
+		const requested = new Set();
 		await new Promise((resolve, reject) => {
 			const startTime = Date.now();
-			let retryCount = 0;
 			const checkInventories = () => {
-				if (Date.now() - startTime > CONFIG.TRADE.INVENTORY_CHECK_TIMEOUT) {
-					reject(new Error(`Inventory loading timeout after ${CONFIG.TRADE.INVENTORY_CHECK_TIMEOUT}ms`));
+				const loader = unsafeWindow.STM_INVENTORY_LOADER;
+				if (loader?.failed) {
+					reject(new Error(`${loader.failed} Steam may be limiting requests: try again in a few minutes.`));
 					return;
 				}
-				if (retryCount >= CONFIG.TRADE.INVENTORY_CHECK_MAX_RETRIES) {
-					reject(new Error(`Inventory loading failed after ${retryCount} retries`));
+				const users = [unsafeWindow.UserYou, unsafeWindow.UserThem].slice(0, needed);
+				if (areInventoriesReady(users)) {
+					resolve();
 					return;
 				}
-				retryCount++;
-				const users = [unsafeWindow.UserYou, unsafeWindow.UserThem];
-				if (areInventoriesReady(users)) resolve();
-				else {
-					requestMissingInventories(users);
-					setTimeout(checkInventories, CONFIG.TRADE.INVENTORY_CHECK_INTERVAL);
+				const now = Date.now();
+				if (now - startTime > CONFIG.TRADE.INVENTORY_MAX_WAIT) {
+					const maxWaitSeconds = Math.round(CONFIG.TRADE.INVENTORY_MAX_WAIT / MS_PER_SECOND);
+					reject(new Error(`Inventory loading timed out after ${String(maxWaitSeconds)}s`));
+					return;
 				}
+				if (now - (loader?.lastUpdate ?? startTime) > CONFIG.TRADE.INVENTORY_STALL_TIMEOUT) {
+					const stallSeconds = Math.round(CONFIG.TRADE.INVENTORY_STALL_TIMEOUT / MS_PER_SECOND);
+					reject(new Error(`Inventory loading stalled (no progress for ${String(stallSeconds)}s). Steam may be limiting requests: try again in a few minutes.`));
+					return;
+				}
+				requestMissingInventories(users, requested);
+				setTimeout(checkInventories, CONFIG.TRADE.INVENTORY_CHECK_INTERVAL);
 			};
 			checkInventories();
 		});
 	}
 	async function handleSteamTrade(settings) {
-		const parameters = getUrlParameters();
-		const cards = [parameters.you, parameters.them];
-		const yourCards = cards[0];
-		const theirCards = cards[1];
-		if (!yourCards?.length || !theirCards?.length) throw new Error("No cards specified in URL parameters");
+		const { you, them, isGift } = getUrlParameters();
+		if (isGift && them.length > 0) {
+			unsafeWindow.ShowAlertDialog("Invalid gift", "A gift can't ask for items in return. Script aborting.");
+			throw new Error("Gift asking for items");
+		}
+		if (!isGift && you.length !== them.length) {
+			unsafeWindow.ShowAlertDialog("Different items amount", `You've requested ${you.length > them.length ? "less" : "more"} items than you give. Script aborting.`);
+			throw new Error("Different items amount on both sides");
+		}
+		if (you.length === 0) throw new Error("No cards specified in URL parameters");
+		const oldCookie = CookieManager.getInventoryCookie();
 		CookieManager.clearInventoryCookie();
-		const tradeHandler = new TradeHandler(settings, [unsafeWindow.UserYou, unsafeWindow.UserThem], cards);
+		injectInventoryLoader();
 		try {
-			await waitForInventories();
-			tradeHandler.validateTrade();
+			await waitForInventories(isGift);
 			unsafeWindow.TradePageSelectInventory(unsafeWindow.UserYou, CONFIG.STEAM.APP_ID, CONFIG.STEAM.CONTEXT_ID.toString());
 			const tradeOfferNote = document.querySelector("#trade_offer_note");
 			if (tradeOfferNote) tradeOfferNote.value = settings.MESSAGE;
-			tradeHandler.processCards();
-			tradeHandler.injectPostTradeHandler();
-			tradeHandler.completeTrade();
+			new TradeHandler(settings, [unsafeWindow.UserYou, unsafeWindow.UserThem], [you, them], isGift).addCards();
 		} catch (error) {
 			if (error instanceof Error) {
 				unsafeWindow.ShowAlertDialog("Trade Error", error.message);
 				console.error("Trade error:", error);
 			}
 		} finally {
-			CookieManager.restoreInventoryCookie(tradeHandler.oldCookie);
+			CookieManager.restoreInventoryCookie(oldCookie);
 		}
 	}
 	async function init() {
@@ -629,6 +833,7 @@
 			if (location.pathname.startsWith("/tradeoffer/new/")) await new StyleManager().initialize();
 			if (location.search.includes("source=stm")) await handleSteamTrade(settings);
 		} else if (CONFIG.WEBSITE_HOSTS.includes(location.host)) {
+			listenToInventoryRequests();
 			new TradeSplitter().bindEvents();
 			document.addEventListener("turbo:load", () => {
 				if (location.pathname === "/userscript") prepareSettings(settings);

@@ -44,7 +44,7 @@
 		document.querySelectorAll("[id^=\"drop-filter-\"]").forEach((checkbox) => {
 			const titleElement = checkbox.closest("div")?.querySelector(":scope .accordion-header [class*=\"CoreText\"]");
 			if (!titleElement) return;
-			const title = titleElement.textContent?.trim() ?? "";
+			const title = titleElement.textContent.trim();
 			state.items[title] = checkbox.checked;
 		});
 		await GM.setValue(STORAGE_KEY, JSON.stringify(state));
@@ -83,7 +83,7 @@
 		const currentMonth = currentDate.getMonth();
 		const currentDay = currentDate.getDate();
 		const year = monthNumber < currentMonth ? currentYear + 1 : currentYear;
-		const dayOfMonth = Math.trunc(Number(day || String(currentDay)));
+		const dayOfMonth = Math.trunc(Number(day ?? String(currentDay)));
 		const minuteOfHour = Math.trunc(Number(minute ?? "0"));
 		return new Date(year, monthNumber, dayOfMonth, to12HourClockHours(hour ?? "0", ampm), minuteOfHour);
 	}
@@ -131,14 +131,14 @@
 	function findDateElement(root) {
 		for (const element of root.querySelectorAll("div, span, p")) {
 			if (element.children.length > 0) continue;
-			if (isDateRangeText(element.textContent?.trim() ?? "")) return element;
+			if (isDateRangeText(element.textContent.trim())) return element;
 		}
 	}
 	function collectDropItemElements() {
 		const dropItemElements = [];
 		for (const header of document.querySelectorAll(".accordion-header")) {
 			const item = header.parentElement;
-			if (!item || item.querySelector(":scope > .accordion-header") !== header || !findDateElement(header)) continue;
+			if (item?.querySelector(":scope > .accordion-header") !== header || !findDateElement(header)) continue;
 			dropItemElements.push(item);
 		}
 		return dropItemElements;
@@ -147,7 +147,7 @@
 		let openHeading;
 		let closedHeading;
 		document.querySelectorAll("h4").forEach((h4) => {
-			const text = h4.textContent?.trim();
+			const text = h4.textContent.trim();
 			if (text === "Open Drop Campaigns") openHeading = h4;
 			else if (text === "Closed Drop Campaigns") closedHeading = h4;
 		});
@@ -180,7 +180,7 @@
 	}
 	function buildSortedDropItems(openDropItems) {
 		const itemsWithDates = openDropItems.map((item, originalIndex) => {
-			const dateText = findDateElement(item)?.textContent?.trim() ?? "";
+			const dateText = findDateElement(item)?.textContent.trim() ?? "";
 			const endDate = parseEndDate$1(dateText);
 			const titleElement = item.querySelector(":scope .accordion-header [class*=\"CoreText\"]");
 			return {
@@ -189,7 +189,7 @@
 				endDate,
 				timestamp: endDate ? endDate.getTime() : Number.POSITIVE_INFINITY,
 				originalIndex,
-				title: titleElement?.textContent?.trim() ?? ""
+				title: titleElement?.textContent.trim() ?? ""
 			};
 		});
 		itemsWithDates.sort((a, b) => a.timestamp - b.timestamp);
@@ -216,11 +216,11 @@
 	function attachItemCheckbox(item, newIndex, masterCheckbox, savedState) {
 		const button = item.element.querySelector(":scope .accordion-header button");
 		if (!button) return;
-		const isChecked = savedState?.items?.[item.title] ?? true;
+		const isChecked = savedState?.items[item.title] ?? true;
 		const checkbox = document.createElement("input");
 		checkbox.type = "checkbox";
 		checkbox.className = "drops-filter-checkbox";
-		checkbox.id = `drop-filter-${newIndex}`;
+		checkbox.id = `drop-filter-${String(newIndex)}`;
 		checkbox.checked = isChecked;
 		checkbox.addEventListener("change", (event) => {
 			event.stopPropagation();
@@ -236,7 +236,7 @@
 	function bindMasterFilterChange(masterCheckbox, itemsWithDates) {
 		masterCheckbox.addEventListener("change", () => {
 			for (const [index, item] of itemsWithDates.entries()) {
-				const checkbox = document.querySelector(`#drop-filter-${index}`);
+				const checkbox = document.querySelector(`#drop-filter-${String(index)}`);
 				if (masterCheckbox.checked) item.element.classList.toggle("drops-hidden", checkbox !== void 0 && !checkbox.checked);
 				else item.element.classList.remove("drops-hidden");
 			}
@@ -284,7 +284,7 @@
 		return [...mutation.addedNodes].some((node) => {
 			if (node.nodeType !== Node.ELEMENT_NODE) return false;
 			const element = node;
-			return element.classList?.contains("accordion-header") || Boolean(element.querySelector?.(":scope .accordion-header"));
+			return element.classList.contains("accordion-header") || Boolean(element.querySelector(":scope .accordion-header"));
 		});
 	}
 	function initializeCampaigns() {
@@ -468,12 +468,12 @@
 	}
 	function findEndDateText(root) {
 		for (const element of root.querySelectorAll("span, p")) {
-			const text = element.textContent?.trim() ?? "";
+			const text = element.textContent.trim();
 			if (END_DATE_PATTERN.test(text)) return text;
 		}
 	}
 	function isEndedCampaign(card, info) {
-		if (card.textContent?.includes(NO_LONGER_AVAILABLE_TEXT)) return true;
+		if (card.textContent.includes(NO_LONGER_AVAILABLE_TEXT)) return true;
 		const dateText = findEndDateText(info);
 		return Boolean(dateText && isDateInPast(dateText));
 	}
@@ -486,10 +486,10 @@
 			if (!card || !isEndedCampaign(card, info)) continue;
 			if (didHideElement(card)) hiddenCount++;
 		}
-		if (hiddenCount > 0) console.log(`[Twitch Drops] Hidden ${hiddenCount} ended campaign(s)`);
+		if (hiddenCount > 0) console.log(`[Twitch Drops] Hidden ${String(hiddenCount)} ended campaign(s)`);
 	}
 	function isVisibleActionButton(button, label) {
-		return !button.disabled && Boolean(button.offsetParent) && button.textContent?.trim() === label;
+		return !button.disabled && Boolean(button.offsetParent) && button.textContent.trim() === label;
 	}
 	function clickClaimNowButtons() {
 		let clickedCount = 0;
@@ -499,7 +499,7 @@
 			button.click();
 			clickedCount++;
 		}
-		if (clickedCount > 0) console.log(`[Twitch Drops] Clicked ${clickedCount} "Claim Now" button(s)`);
+		if (clickedCount > 0) console.log(`[Twitch Drops] Clicked ${String(clickedCount)} "Claim Now" button(s)`);
 	}
 	function hasClaimNowButton() {
 		for (const button of document.querySelectorAll("button")) if (isVisibleActionButton(button, CLAIM_NOW_LABEL)) return true;
@@ -570,7 +570,8 @@
 			navigation.addEventListener("currententrychange", notify);
 			return;
 		}
-		const { pushState, replaceState } = history;
+		const pushState = history.pushState.bind(history);
+		const replaceState = history.replaceState.bind(history);
 		history.pushState = function(...stateArguments) {
 			Reflect.apply(pushState, history, stateArguments);
 			notify();
