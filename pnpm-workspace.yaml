@@ -12,3 +12,8 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/visitor-keys@8.67.0'
   - typescript-eslint@8.67.0
   - globals@17.10.0 || 17.11.0
+overrides:
+  minimatch@>=7.0.0 <11.0.1: ^11.0.1
+  seroval@<=1.6.7: ^1.6.8
+  seroval@>=1.5.5 <1.6.10: ^1.6.10
+  source-map-js@>=1.0.0 <1.2.2: ^1.2.2
