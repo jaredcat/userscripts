@@ -1,29 +1,24 @@
-import js from '@eslint/js';
-import prettier from 'eslint-config-prettier';
-import sonarjs from 'eslint-plugin-sonarjs';
-import unicorn from 'eslint-plugin-unicorn';
+import narwhal from 'eslint-config-narwhal';
 import globals from 'globals';
-import ts from 'typescript-eslint';
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
-  js.configs.recommended,
-  ...ts.configs.recommended,
-  sonarjs.configs.recommended,
-  unicorn.configs.recommended,
-  prettier,
+  ...narwhal({
+    typescript: true,
+    typechecked: true,
+    strict: true,
+    stylistic: true,
+    prettier: true,
+  }),
   {
-    files: ['src/**/*.ts'],
-    ...ts.configs.recommendedTypeChecked[0],
     languageOptions: {
-      ...ts.configs.recommendedTypeChecked[0].languageOptions,
       globals: {
         ...globals.browser,
         ...globals.node,
       },
       parserOptions: {
-        ...ts.configs.recommendedTypeChecked[0].languageOptions?.parserOptions,
         projectService: true,
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
@@ -52,12 +47,6 @@ export default [
       'prefer-promise-reject-errors': 'error',
       // Userscript / browser DOM conventions
       'unicorn/filename-case': 'off',
-      // Prefer Sonar when Unicorn conflicts (e.g. Number.NaN vs NaN).
-      'unicorn/prefer-global-number-constants': 'off',
-      'unicorn/prefer-number-properties': [
-        'error',
-        { checkNaN: true, checkInfinity: true },
-      ],
     },
   },
   {
