@@ -43,10 +43,9 @@
 		};
 		document.querySelectorAll("[id^=\"drop-filter-\"]").forEach((checkbox) => {
 			const titleElement = checkbox.closest("div")?.querySelector(":scope .accordion-header [class*=\"CoreText\"]");
-			if (titleElement) {
-				const title = titleElement.textContent?.trim() ?? "";
-				state.items[title] = checkbox.checked;
-			}
+			if (!titleElement) return;
+			const title = titleElement.textContent?.trim() ?? "";
+			state.items[title] = checkbox.checked;
 		});
 		await GM.setValue(STORAGE_KEY, JSON.stringify(state));
 	}
@@ -139,9 +138,7 @@
 		const dropItemElements = [];
 		for (const header of document.querySelectorAll(".accordion-header")) {
 			const item = header.parentElement;
-			if (!item) continue;
-			if (item.querySelector(":scope > .accordion-header") !== header) continue;
-			if (!findDateElement(header)) continue;
+			if (!item || item.querySelector(":scope > .accordion-header") !== header || !findDateElement(header)) continue;
 			dropItemElements.push(item);
 		}
 		return dropItemElements;
@@ -154,11 +151,10 @@
 			if (text === "Open Drop Campaigns") openHeading = h4;
 			else if (text === "Closed Drop Campaigns") closedHeading = h4;
 		});
-		if (!openHeading) return void 0;
-		return {
+		return openHeading ? {
 			openHeading,
 			closedHeading
-		};
+		} : void 0;
 	}
 	function isFollowing(reference, item) {
 		return (reference.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -172,8 +168,8 @@
 		const { openHeading, closedHeading } = headings;
 		for (const item of dropItemElements) {
 			const isAfterOpen = isFollowing(openHeading, item);
-			const isBeforeClosed = closedHeading ? isPreceding(closedHeading, item) : true;
-			const isAfterClosed = closedHeading ? isFollowing(closedHeading, item) : false;
+			const isBeforeClosed = !closedHeading || isPreceding(closedHeading, item);
+			const isAfterClosed = closedHeading !== void 0 && isFollowing(closedHeading, item);
 			if (isAfterOpen && isBeforeClosed) openDropItems.push(item);
 			else if (isAfterClosed) closedDropItems.push(item);
 		}
@@ -241,7 +237,7 @@
 		masterCheckbox.addEventListener("change", () => {
 			for (const [index, item] of itemsWithDates.entries()) {
 				const checkbox = document.querySelector(`#drop-filter-${index}`);
-				if (masterCheckbox.checked) item.element.classList.toggle("drops-hidden", checkbox ? !checkbox.checked : false);
+				if (masterCheckbox.checked) item.element.classList.toggle("drops-hidden", checkbox !== void 0 && !checkbox.checked);
 				else item.element.classList.remove("drops-hidden");
 			}
 			scheduleSaveFilterState();
@@ -305,8 +301,7 @@
 		};
 		const observer = new MutationObserver((mutations) => {
 			for (const mutation of mutations) {
-				if (mutation.addedNodes.length === 0) continue;
-				if (!hasAccordionInMutation(mutation)) continue;
+				if (mutation.addedNodes.length === 0 || !hasAccordionInMutation(mutation)) continue;
 				mutationTimer = setTimeout(runProcess, MUTATION_PROCESS_DELAY_MS);
 				break;
 			}
@@ -430,8 +425,7 @@
 		const timezone = match[7];
 		if (!monthName || !dayText || !hourText || !minuteText || !ampm || !timezone) return;
 		const month = MONTH_INDEX[monthName.toLowerCase().slice(0, MONTH_ABBREVIATION_LENGTH)];
-		if (month === void 0) return void 0;
-		return {
+		return month === void 0 ? void 0 : {
 			month,
 			day: Math.trunc(Number(dayText)),
 			hour24: to24Hour(hourText, ampm),
@@ -446,8 +440,7 @@
 	}
 	function shouldUsePreviousYear(date, now, currentMonth, month) {
 		const monthsDiff = (date.getTime() - now.getTime()) / MS_PER_MONTH_APPROX;
-		if (monthsDiff <= MONTHS_DIFF_THRESHOLD) return false;
-		return monthsDiff > MONTHS_DIFF_YEAR_BOUNDARY || currentMonth < EARLY_YEAR_MONTH_MAX && month > LATE_YEAR_MONTH_MIN;
+		return monthsDiff > MONTHS_DIFF_THRESHOLD && (monthsDiff > MONTHS_DIFF_YEAR_BOUNDARY || currentMonth < EARLY_YEAR_MONTH_MAX && month > LATE_YEAR_MONTH_MIN);
 	}
 	function resolveYearAdjustedDate(parts, offsetHours) {
 		const currentYear = new Date().getFullYear();
@@ -471,8 +464,7 @@
 	}
 	function isDateInPast(dateText) {
 		const endDate = parseEndDate(dateText);
-		if (!endDate) return false;
-		return endDate < new Date();
+		return endDate !== void 0 && endDate < new Date();
 	}
 	function findEndDateText(root) {
 		for (const element of root.querySelectorAll("span, p")) {
@@ -491,22 +483,18 @@
 		const campaignInfos = document.querySelectorAll(".inventory-campaign-info");
 		for (const info of campaignInfos) {
 			const card = closestCardWithDropImage(info);
-			if (!card) continue;
-			if (!isEndedCampaign(card, info)) continue;
+			if (!card || !isEndedCampaign(card, info)) continue;
 			if (didHideElement(card)) hiddenCount++;
 		}
 		if (hiddenCount > 0) console.log(`[Twitch Drops] Hidden ${hiddenCount} ended campaign(s)`);
 	}
 	function isVisibleActionButton(button, label) {
-		if (button.disabled) return false;
-		if (!button.offsetParent) return false;
-		return button.textContent?.trim() === label;
+		return !button.disabled && Boolean(button.offsetParent) && button.textContent?.trim() === label;
 	}
 	function clickClaimNowButtons() {
 		let clickedCount = 0;
 		for (const button of document.querySelectorAll("button")) {
-			if (!isVisibleActionButton(button, CLAIM_NOW_LABEL)) continue;
-			if ("dropsClaimClicked" in button.dataset) continue;
+			if (!isVisibleActionButton(button, CLAIM_NOW_LABEL) || "dropsClaimClicked" in button.dataset) continue;
 			button.dataset.dropsClaimClicked = "true";
 			button.click();
 			clickedCount++;
@@ -567,7 +555,7 @@
 	function dropsRouteFromLocation() {
 		const { pathname } = location;
 		if (pathname.includes("/drops/campaigns")) return "campaigns";
-		if (pathname.includes("/drops/inventory")) return "inventory";
+		return pathname.includes("/drops/inventory") ? "inventory" : void 0;
 	}
 	function watchLocation(onChange) {
 		let lastHref = location.href;

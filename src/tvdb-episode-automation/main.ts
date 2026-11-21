@@ -71,5 +71,7 @@ button.style.position = 'fixed';
 button.style.top = '10px';
 button.style.right = '10px';
 button.style.zIndex = '9999';
-button.addEventListener('click', () => fillEpisodeData(episodeData));
+button.addEventListener('click', () => {
+  fillEpisodeData(episodeData);
+});
 document.body.append(button);

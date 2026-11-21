@@ -1,13 +1,13 @@
 /* eslint-disable no-magic-numbers -- calculator domain; many numeric literals */
 /**
- * Kingshot Troop Calculator — augments the troop calculator page:
- * - Persists inputs by field name (v3) + delayed re-apply so React doesn’t stomp Bear sliders.
- * - Bear Split: Rally = preset march from stock; Squads 1–N = one optimal uniform march from
- *   the remainder (pool ÷ N per type, L²-closest to Bear sliders) so counts and % match
- *   “same formation every squad” while staying feasible. Calculated %: Rally actual; squads
- *   identical optimal line. Vikings: uniform best-fit from full pool.
- * Page: https://www.kingshotguide.org/calculator/troops-calculator
- */
+Kingshot Troop Calculator — augments the troop calculator page:
+- Persists inputs by field name (v3) + delayed re-apply so React doesn’t stomp Bear sliders.
+- Bear Split: Rally = preset march from stock; Squads 1–N = one optimal uniform march from
+  the remainder (pool ÷ N per type, L²-closest to Bear sliders) so counts and % match
+  “same formation every squad” while staying feasible. Calculated %: Rally actual; squads
+  identical optimal line. Vikings: uniform best-fit from full pool.
+Page: https://www.kingshotguide.org/calculator/troops-calculator
+*/
 
 if (import.meta.hot) {
   import.meta.hot.accept(() => {
@@ -46,7 +46,7 @@ const IDX = {
   vikSquads: 10,
 } as const;
 
-type InputValues = {
+interface InputValues {
   mySquad: number;
   totalInf: number;
   totalCav: number;
@@ -58,9 +58,13 @@ type InputValues = {
   vikingInf: number;
   vikingCav: number;
   vikSquads: number;
-};
+}
 
-type PctTargets = { inf: number; cav: number; arc: number };
+interface PctTargets {
+  inf: number;
+  cav: number;
+  arc: number;
+}
 
 /**
 Order for legacy array save and keyed storage (must match IDX).
@@ -90,17 +94,18 @@ Card that contains an h3 whose text matches (used so input order stays stable wh
 */
 function findSectionRootByHeading(rx: RegExp): HTMLElement | undefined {
   const h = [...pageWindow.document.querySelectorAll('h2, h3')].find(
-    (element) => rx.test(element.textContent?.trim() ?? ''),
+    (element) => rx.test(element.textContent.trim()),
   );
-  if (!h) return undefined;
-  return (h.closest(
-    '[class*="rounded-lg"], [class*="rounded"], section, article',
-  ) ?? h.parentElement) as HTMLElement | undefined;
+  return h
+    ? ((h.closest(
+        '[class*="rounded-lg"], [class*="rounded"], section, article',
+      ) ?? h.parentElement) as HTMLElement | undefined)
+    : undefined;
 }
 
 /**
- * Map logical fields to DOM inputs. Falls back to legacy index order if a section is missing.
- */
+Map logical fields to DOM inputs. Falls back to legacy index order if a section is missing.
+*/
 function getCalculatorFieldMap(): Partial<
   Record<keyof InputValues, HTMLInputElement>
 > {
@@ -170,11 +175,11 @@ function getCalculatorOrderedInputs(): HTMLInputElement[] {
   const resolved = FIELD_ORDER.map((k) => m[k]).filter(
     Boolean,
   ) as HTMLInputElement[];
-  if (resolved.length === 11) return resolved;
-
-  return [...pageWindow.document.querySelectorAll('input')].filter((element) =>
-    isNumericLikeInput(element),
-  );
+  return resolved.length === 11
+    ? resolved
+    : [...pageWindow.document.querySelectorAll('input')].filter((element) =>
+        isNumericLikeInput(element),
+      );
 }
 
 function setReactValue(
@@ -196,9 +201,9 @@ function setReactValue(
 }
 
 /**
- * Strip thousands separators (commas, spaces) and keep digits + at most one decimal point
- * so pastes like "300,000", "300 000", or "12.5" work with React-controlled inputs.
- */
+Strip thousands separators (commas, spaces) and keep digits + at most one decimal point
+so pastes like "300,000", "300 000", or "12.5" work with React-controlled inputs.
+*/
 function sanitizePastedNumericField(text: string): string {
   const compact = text.replaceAll(/[\s,]/g, '');
   let out = '';
@@ -215,9 +220,10 @@ function sanitizePastedNumericField(text: string): string {
 
 function isNumericLikeInput(element: HTMLInputElement): boolean {
   const t = (element.type || 'text').toLowerCase();
-  if (['checkbox', 'radio', 'file', 'button'].includes(t)) return false;
-  if (['hidden', 'submit', 'reset', 'image'].includes(t)) return false;
-  return true;
+  return !(
+    ['checkbox', 'radio', 'file', 'button'].includes(t) ||
+    ['hidden', 'submit', 'reset', 'image'].includes(t)
+  );
 }
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
@@ -227,8 +233,7 @@ function load(): string[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(String);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
   } catch {
     return [];
   }
@@ -240,10 +245,12 @@ function saveAll(): void {
   let hasAny = false;
   for (const key of FIELD_ORDER) {
     const element = m[key];
-    if (element) {
-      fields[key] = element.value;
-      hasAny = true;
+    if (!element) {
+      continue;
     }
+
+    fields[key] = element.value;
+    hasAny = true;
   }
   if (hasAny) {
     try {
@@ -269,8 +276,8 @@ function loadFieldsFromStorage():
     const raw = localStorage.getItem(STORAGE_KEY_FIELDS);
     if (raw) {
       const p = JSON.parse(raw) as { fields?: Record<string, string> };
-      if (p?.fields && typeof p.fields === 'object') {
-        return p.fields as Partial<Record<keyof InputValues, string>>;
+      if (p.fields && typeof p.fields === 'object') {
+        return p.fields;
       }
     }
     const legacy = load();
@@ -338,8 +345,12 @@ function onUserInput(event: Event): void {
 
 function onPasteCapture(event: ClipboardEvent): void {
   const target = event.target;
-  if (!target || !(target instanceof HTMLInputElement)) return;
-  if (!isNumericLikeInput(target)) return;
+  if (
+    !target ||
+    !(target instanceof HTMLInputElement) ||
+    !isNumericLikeInput(target)
+  )
+    return;
 
   const raw = event.clipboardData?.getData('text/plain');
   if (raw === undefined || raw === '') return;
@@ -379,8 +390,8 @@ function injectStyles(): void {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function parseCount(text: string | undefined): number {
-  return Number((text ?? '').replaceAll(/\D/g, '')) || 0;
+function parseCount(text = ''): number {
+  return Number(text.replaceAll(/\D/g, '')) || 0;
 }
 
 function fmt(n: number): string {
@@ -390,7 +401,11 @@ function fmt(n: number): string {
 type TroopType = 'inf' | 'cav' | 'arc';
 type TroopIndex = 0 | 1 | 2;
 
-type TroopChunk = { inf: number; cav: number; arc: number };
+interface TroopChunk {
+  inf: number;
+  cav: number;
+  arc: number;
+}
 
 function roundCountTripletToSum(
   exacts: [number, number, number],
@@ -445,8 +460,8 @@ function subtractChunk(pool: TroopChunk, chunk: TroopChunk): TroopChunk {
 }
 
 /**
- * One march toward preset % (ideal split, capped by stock, then top-up toward solo cap when possible).
- */
+One march toward preset % (ideal split, capped by stock, then top-up toward solo cap when possible).
+*/
 function allocateMarchTowardPreset(
   rem: TroopChunk,
   mySquad: number,
@@ -487,7 +502,10 @@ function bearSliderRoundedPcts(
   return { inf: index, cav: c, arc: a };
 }
 
-type UniformMarchResult = { march: TroopChunk; marchTotal: number };
+interface UniformMarchResult {
+  march: TroopChunk;
+  marchTotal: number;
+}
 
 /**
 Exists nonnegative i,c,a with i+c+a=T and per-type caps?
@@ -531,8 +549,7 @@ function maxFeasibleMarchTotal(
 function infFloatForRemainder(rem: number, ti: number, tc: number): number {
   const denom = ti + tc;
   if (denom <= 1e-12) {
-    if (ti <= 1e-12 && tc <= 1e-12) return 0;
-    return rem / 2;
+    return ti <= 1e-12 && tc <= 1e-12 ? 0 : rem / 2;
   }
   return (rem * ti) / denom;
 }
@@ -566,18 +583,18 @@ function scoreComposition(
   return si * si + sc * sc + sa * sa;
 }
 
-type CompositionRatios = {
+interface CompositionRatios {
   T: number;
   ti: number;
   tc: number;
   ta: number;
-};
+}
 
-type CompositionBounds = {
+interface CompositionBounds {
   indexLow: number;
   indexHigh: number;
   capC: number;
-};
+}
 
 function evaluateCompositionCandidate(input: {
   index: number;
@@ -589,26 +606,27 @@ function evaluateCompositionCandidate(input: {
   const { index, rem, a, bounds, ratios } = input;
   if (index < bounds.indexLow || index > bounds.indexHigh) return undefined;
   const c = rem - index;
-  if (c < 0 || c > bounds.capC) return undefined;
-  return {
-    score: scoreComposition(
-      index,
-      c,
-      a,
-      ratios.T,
-      ratios.ti,
-      ratios.tc,
-      ratios.ta,
-    ),
-    chunk: { inf: index, cav: c, arc: a },
-  };
+  return c < 0 || c > bounds.capC
+    ? undefined
+    : {
+        score: scoreComposition(
+          index,
+          c,
+          a,
+          ratios.T,
+          ratios.ti,
+          ratios.tc,
+          ratios.ta,
+        ),
+        chunk: { inf: index, cav: c, arc: a },
+      };
 }
 
-type CompositionBest = {
+interface CompositionBest {
   chunk: TroopChunk | undefined;
   score: number;
   tieArcher: number;
-};
+}
 
 function considerCandidatesForArcher(
   a: number,
@@ -682,11 +700,11 @@ function bestCompositionForMarchTotal(
 }
 
 /**
- * One formation repeated on every march: never uses more than `pool/N` per type per march,
- * so totals never exceed your army. If a full solo march is impossible for all N slots,
- * uses the largest feasible march total T ≤ mySquad and optimizes L² vs preset on that T.
- * Never falls back to ignoring stock (that was the bug that showed 10/10/80 over-cap).
- */
+One formation repeated on every march: never uses more than `pool/N` per type per march,
+so totals never exceed your army. If a full solo march is impossible for all N slots,
+uses the largest feasible march total T ≤ mySquad and optimizes L² vs preset on that T.
+Never falls back to ignoring stock (that was the bug that showed 10/10/80 over-cap).
+*/
 function findBestUniformMarch(
   pool: TroopChunk,
   numberMarches: number,
@@ -713,11 +731,9 @@ function findBestUniformMarch(
   }
 
   const march = bestCompositionForMarchTotal(T, capI, capC, capA, ti, tc, ta);
-  if (!march) {
-    return { march: { inf: 0, cav: 0, arc: 0 }, marchTotal: 0 };
-  }
-
-  return { march, marchTotal: T };
+  return march
+    ? { march, marchTotal: T }
+    : { march: { inf: 0, cav: 0, arc: 0 }, marchTotal: 0 };
 }
 
 function roundTripletTo100(
@@ -783,8 +799,7 @@ function roundTripletTo100(
 
 function troopTypeToIndex(t: TroopType): TroopIndex {
   if (t === 'inf') return 0;
-  if (t === 'cav') return 1;
-  return 2;
+  return t === 'cav' ? 1 : 2;
 }
 
 function pickRemainderIndex(
@@ -796,8 +811,8 @@ function pickRemainderIndex(
 ): TroopIndex | undefined {
   const sorted: TroopIndex[] = [...candidates];
   sorted.sort((a, b) => {
-    const ra = (remainders[a] ?? 0) + (bias[a] ?? 0);
-    const rb = (remainders[b] ?? 0) + (bias[b] ?? 0);
+    const ra = remainders[a] + bias[a];
+    const rb = remainders[b] + bias[b];
     if (ra !== rb) return direction === 'desc' ? rb - ra : ra - rb;
     if (preferIndex !== undefined) {
       if (a === preferIndex && b !== preferIndex) return -1;
@@ -848,9 +863,9 @@ function biasForPreferredType(
   earlyBias: number,
 ): [number, number, number] {
   if (preferred === 'inf') return [earlyBias, 0, 0];
-  if (preferred === 'cav') return [0, earlyBias, 0];
-  if (preferred === 'arc') return [0, 0, earlyBias];
-  return [0, 0, 0];
+  return preferred === 'cav'
+    ? [0, earlyBias, 0]
+    : [0, 0, preferred === 'arc' ? earlyBias : 0];
 }
 
 function getInputValues(): InputValues {
@@ -860,8 +875,7 @@ function getInputValues(): InputValues {
   );
   const pick = (k: keyof InputValues, legacyIndex: number): number => {
     const element = m[k];
-    if (element) return parseCount(element.value);
-    return parseCount(legacy[legacyIndex]?.value);
+    return parseCount(element ? element.value : legacy[legacyIndex]?.value);
   };
 
   return {
@@ -887,14 +901,15 @@ function buildPctCell(
   warnAgainst: PctTargets,
 ): HTMLTableCellElement {
   const td = document.createElement('td');
-  const warns: string[] = [];
-  if (actual.inf < warnAgainst.inf) warns.push('⚠ Low infantry');
-  if (actual.cav < warnAgainst.cav) warns.push('⚠ Low cavalry');
-  if (actual.arc < warnAgainst.arc) warns.push('⚠ Low archers');
+  const warns = [
+    ...(actual.inf < warnAgainst.inf ? (['⚠ Low infantry'] as const) : []),
+    ...(actual.cav < warnAgainst.cav ? (['⚠ Low cavalry'] as const) : []),
+    ...(actual.arc < warnAgainst.arc ? (['⚠ Low archers'] as const) : []),
+  ];
   td.innerHTML = `
-      <span class="ks-pct-badge ks-pct-inf">I: ${display.inf}%</span>
-      <span class="ks-pct-badge ks-pct-cav">C: ${display.cav}%</span>
-      <span class="ks-pct-badge ks-pct-arc">A: ${display.arc}%</span>
+      <span class="ks-pct-badge ks-pct-inf">I: ${String(display.inf)}%</span>
+      <span class="ks-pct-badge ks-pct-cav">C: ${String(display.cav)}%</span>
+      <span class="ks-pct-badge ks-pct-arc">A: ${String(display.arc)}%</span>
       ${warns.map((w) => `<span class="ks-pct-warn">${w}</span>`).join('')}
     `;
   return td;
@@ -902,7 +917,7 @@ function buildPctCell(
 
 function findSplitTable(pattern: RegExp): HTMLTableElement | undefined {
   const h3 = [...document.querySelectorAll('h3')].find((element) =>
-    pattern.test(element.textContent?.trim() ?? ''),
+    pattern.test(element.textContent.trim()),
   );
   if (!h3) return undefined;
   const card = h3.closest(
@@ -913,9 +928,7 @@ function findSplitTable(pattern: RegExp): HTMLTableElement | undefined {
     if (table) return table;
   }
   return [...document.querySelectorAll('table')].find(
-    (t) =>
-      /infantry/i.test(t.textContent ?? '') &&
-      /archers/i.test(t.textContent ?? ''),
+    (t) => /infantry/i.test(t.textContent) && /archers/i.test(t.textContent),
   );
 }
 
@@ -925,7 +938,7 @@ function getTroopRow(
 ): HTMLTableRowElement | undefined {
   for (const row of table.querySelectorAll('tr')) {
     if (row.classList.contains('ks-pct-row')) continue;
-    const t = row.cells[0]?.textContent?.trim().toLowerCase() ?? '';
+    const t = row.cells[0]?.textContent.trim().toLowerCase() ?? '';
     if (t === label) return row;
   }
   return undefined;
@@ -937,7 +950,7 @@ function getTroopRowLoose(
 ): HTMLTableRowElement | undefined {
   for (const row of table.querySelectorAll('tr')) {
     if (row.classList.contains('ks-pct-row')) continue;
-    const t = row.cells[0]?.textContent?.trim().toLowerCase() ?? '';
+    const t = row.cells[0]?.textContent.trim().toLowerCase() ?? '';
     if (t.includes(includes)) return row;
   }
   return undefined;
@@ -948,8 +961,12 @@ Insert a Rally column after Type when the site only shows squad columns.
 */
 function ensureBearRallyColumn(table: HTMLTableElement): void {
   const headerRow = table.querySelector('tr');
-  if (!headerRow || headerRow.cells.length < 3) return;
-  if (headerRow.cells[1]?.textContent?.trim() === 'Rally') return;
+  if (
+    !headerRow ||
+    headerRow.cells.length < 3 ||
+    headerRow.cells[1]?.textContent.trim() === 'Rally'
+  )
+    return;
   for (const row of table.querySelectorAll('tr')) {
     if (row.classList.contains('ks-pct-row')) continue;
     const cell = row.insertCell(1);
@@ -961,9 +978,9 @@ function ensureBearRallyColumn(table: HTMLTableElement): void {
 
 function fillTroopDataColumn(row: HTMLTableRowElement, values: number[]): void {
   const last = row.cells.length - 1;
-  for (const [index, value] of values.entries()) {
+  for (const [index, value = 0] of values.entries()) {
     const cell = row.cells[index + 1];
-    if (cell) cell.textContent = fmt(value ?? 0);
+    if (cell) cell.textContent = fmt(value);
   }
   const totalCell = row.cells[last];
   if (totalCell) {
@@ -988,9 +1005,9 @@ function fillSummaryRows(
 }
 
 /**
- * Rally: actual % from the rally march. Squads: one identical optimal % (same every squad column).
- * Warnings vs Bear preset sliders when you fall short of that goal.
- */
+Rally: actual % from the rally march. Squads: one identical optimal % (same every squad column).
+Warnings vs Bear preset sliders when you fall short of that goal.
+*/
 function appendBearSplitPctRow(
   table: HTMLTableElement,
   mySquad: number,
@@ -1182,14 +1199,14 @@ function processVikingsSplitTable(
 
 // ─── Training Focus table ─────────────────────────────────────────────────────
 
-type TrainingPreset = {
+interface TrainingPreset {
   id: 'balanced' | 'bear' | 'viking';
   pattern: RegExp;
   infR: number;
   cavR: number;
   arcR: number;
   squads: number;
-};
+}
 
 function buildTrainingPresets(v: InputValues): TrainingPreset[] {
   return [
@@ -1256,7 +1273,7 @@ function fillTrainingGapCells(
 
 function processTrainingTable(v: InputValues): void {
   const h3 = [...document.querySelectorAll('h3')].find((element) =>
-    /training focus/i.test(element.textContent ?? ''),
+    /training focus/i.test(element.textContent),
   );
   if (!h3) return;
   const card = h3.closest(
@@ -1269,7 +1286,7 @@ function processTrainingTable(v: InputValues): void {
   const presets = buildTrainingPresets(v);
 
   for (const row of table.querySelectorAll('tr')) {
-    const label = row.cells[0]?.textContent?.trim();
+    const label = row.cells[0]?.textContent.trim();
     if (!label || /^preset$/i.test(label)) continue;
 
     const preset = presets.find((p) => p.pattern.test(label));
@@ -1288,7 +1305,7 @@ function isExplainerText(text: string): boolean {
 
 function updateTrainingFocusExplainer(v: InputValues): void {
   const h3 = [...document.querySelectorAll('h3')].find((element) =>
-    /training focus/i.test(element.textContent ?? ''),
+    /training focus/i.test(element.textContent),
   );
   if (!h3) return;
   const card = h3.closest(
@@ -1302,15 +1319,15 @@ function updateTrainingFocusExplainer(v: InputValues): void {
 
   // Only match a <p> so we never replace a wrapper div and drop the table.
   const element = [...card.querySelectorAll('p')].find((node) =>
-    isExplainerText(node.textContent ?? ''),
+    isExplainerText(node.textContent),
   );
   if (!element) return;
 
   element.textContent =
     `Targets are computed from ideal march counts (full solo capacity per march). ` +
-    `Balanced uses ${balancedSquads} (highest of Bear or Viking). ` +
-    `Bear uses ${bear} squads plus 1 rally (${bear + 1} marches at your Bear preset). ` +
-    `Vikings uses ${vik}. ` +
+    `Balanced uses ${String(balancedSquads)} (highest of Bear or Viking). ` +
+    `Bear uses ${String(bear)} squads plus 1 rally (${String(bear + 1)} marches at your Bear preset). ` +
+    `Vikings uses ${String(vik)}. ` +
     `Gaps are non-negative.`;
 }
 
@@ -1334,9 +1351,6 @@ function run(): void {
   updateTrainingFocusExplainer(v);
 }
 
-// ─── Boot ────────────────────────────────────────────────────────────────────
-
-document.addEventListener('input', onUserInput, { capture: true });
 document.addEventListener('change', onUserInput, { capture: true });
 document.addEventListener('paste', onPasteCapture, { capture: true });
 

@@ -5,7 +5,7 @@ import monkey from 'vite-plugin-monkey';
 
 // Helper to get all script directories
 const getScriptDirs = () => {
-  const scriptsPath = resolve(__dirname, 'src');
+  const scriptsPath = resolve(import.meta.dirname, 'src');
   return fs
     .readdirSync(scriptsPath, { withFileTypes: true })
     .filter((dirent) => dirent.isDirectory())

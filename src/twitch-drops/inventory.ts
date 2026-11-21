@@ -149,15 +149,15 @@ function parseEndDateParts(dateText: string): ParsedEndDateParts | undefined {
 
   const month =
     MONTH_INDEX[monthName.toLowerCase().slice(0, MONTH_ABBREVIATION_LENGTH)];
-  if (month === undefined) return undefined;
-
-  return {
-    month,
-    day: Math.trunc(Number(dayText)),
-    hour24: to24Hour(hourText, ampm),
-    minute: Math.trunc(Number(minuteText)),
-    timezone,
-  };
+  return month === undefined
+    ? undefined
+    : {
+        month,
+        day: Math.trunc(Number(dayText)),
+        hour24: to24Hour(hourText, ampm),
+        minute: Math.trunc(Number(minuteText)),
+        timezone,
+      };
 }
 
 function buildUtcDate(
@@ -179,11 +179,10 @@ function shouldUsePreviousYear(
   month: number,
 ): boolean {
   const monthsDiff = (date.getTime() - now.getTime()) / MS_PER_MONTH_APPROX;
-  if (monthsDiff <= MONTHS_DIFF_THRESHOLD) return false;
-
   return (
-    monthsDiff > MONTHS_DIFF_YEAR_BOUNDARY ||
-    (currentMonth < EARLY_YEAR_MONTH_MAX && month > LATE_YEAR_MONTH_MIN)
+    monthsDiff > MONTHS_DIFF_THRESHOLD &&
+    (monthsDiff > MONTHS_DIFF_YEAR_BOUNDARY ||
+      (currentMonth < EARLY_YEAR_MONTH_MAX && month > LATE_YEAR_MONTH_MIN))
   );
 }
 
@@ -223,20 +222,19 @@ function parseEndDate(dateText: string): Date | undefined {
 
 function isDateInPast(dateText: string): boolean {
   const endDate = parseEndDate(dateText);
-  if (!endDate) return false;
-  return endDate < new Date();
+  return endDate !== undefined && endDate < new Date();
 }
 
 function findEndDateText(root: Element): string | undefined {
   for (const element of root.querySelectorAll('span, p')) {
-    const text = element.textContent?.trim() ?? '';
+    const text = element.textContent.trim();
     if (END_DATE_PATTERN.test(text)) return text;
   }
   return undefined;
 }
 
 function isEndedCampaign(card: HTMLElement, info: Element): boolean {
-  if (card.textContent?.includes(NO_LONGER_AVAILABLE_TEXT)) return true;
+  if (card.textContent.includes(NO_LONGER_AVAILABLE_TEXT)) return true;
   const dateText = findEndDateText(info);
   return Boolean(dateText && isDateInPast(dateText));
 }
@@ -249,15 +247,16 @@ function hideEndedRewards(): void {
 
   for (const info of campaignInfos) {
     const card = closestCardWithDropImage(info);
-    if (!card) continue;
-    if (!isEndedCampaign(card, info)) continue;
+    if (!card || !isEndedCampaign(card, info)) continue;
     if (didHideElement(card)) {
       hiddenCount++;
     }
   }
 
   if (hiddenCount > 0) {
-    console.log(`[Twitch Drops] Hidden ${hiddenCount} ended campaign(s)`);
+    console.log(
+      `[Twitch Drops] Hidden ${String(hiddenCount)} ended campaign(s)`,
+    );
   }
 }
 
@@ -265,17 +264,22 @@ function isVisibleActionButton(
   button: HTMLButtonElement,
   label: string,
 ): boolean {
-  if (button.disabled) return false;
-  if (!button.offsetParent) return false;
-  return button.textContent?.trim() === label;
+  return (
+    !button.disabled &&
+    Boolean(button.offsetParent) &&
+    button.textContent.trim() === label
+  );
 }
 
 function clickClaimNowButtons(): void {
   let clickedCount = 0;
 
   for (const button of document.querySelectorAll('button')) {
-    if (!isVisibleActionButton(button, CLAIM_NOW_LABEL)) continue;
-    if ('dropsClaimClicked' in button.dataset) continue;
+    if (
+      !isVisibleActionButton(button, CLAIM_NOW_LABEL) ||
+      'dropsClaimClicked' in button.dataset
+    )
+      continue;
 
     button.dataset.dropsClaimClicked = 'true';
     button.click();
@@ -283,7 +287,9 @@ function clickClaimNowButtons(): void {
   }
 
   if (clickedCount > 0) {
-    console.log(`[Twitch Drops] Clicked ${clickedCount} "Claim Now" button(s)`);
+    console.log(
+      `[Twitch Drops] Clicked ${String(clickedCount)} "Claim Now" button(s)`,
+    );
   }
 }
 

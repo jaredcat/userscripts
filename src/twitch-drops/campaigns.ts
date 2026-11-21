@@ -55,10 +55,9 @@ async function saveFilterState(): Promise<void> {
     const titleElement = dropItem?.querySelector(
       ':scope .accordion-header [class*="CoreText"]',
     );
-    if (titleElement) {
-      const title = titleElement.textContent?.trim() ?? '';
-      state.items[title] = (checkbox as HTMLInputElement).checked;
-    }
+    if (!titleElement) return;
+    const title = titleElement.textContent.trim();
+    state.items[title] = (checkbox as HTMLInputElement).checked;
   });
 
   await GM.setValue(STORAGE_KEY, JSON.stringify(state));
@@ -66,9 +65,9 @@ async function saveFilterState(): Promise<void> {
 
 async function loadFilterState(): Promise<FilterState | undefined> {
   try {
-    const saved = await GM.getValue(STORAGE_KEY, undefined);
+    const saved = await GM.getValue<string | undefined>(STORAGE_KEY, undefined);
     if (saved) {
-      return JSON.parse(saved as string) as FilterState;
+      return JSON.parse(saved) as FilterState;
     }
   } catch (error) {
     console.warn('[Drops Sorter] Error loading filter state:', error);
@@ -108,7 +107,7 @@ function parseEndDate(dateString: string): Date | undefined {
   const currentMonth = currentDate.getMonth();
   const currentDay = currentDate.getDate();
   const year = monthNumber < currentMonth ? currentYear + 1 : currentYear;
-  const dayOfMonth = Math.trunc(Number(day || String(currentDay)));
+  const dayOfMonth = Math.trunc(Number(day ?? String(currentDay)));
   const minuteOfHour = Math.trunc(Number(minute ?? '0'));
 
   return new Date(
@@ -172,7 +171,7 @@ function isDateRangeText(text: string): boolean {
 function findDateElement(root: Element): Element | undefined {
   for (const element of root.querySelectorAll('div, span, p')) {
     if (element.children.length > 0) continue;
-    const text = element.textContent?.trim() ?? '';
+    const text = element.textContent.trim();
     if (isDateRangeText(text)) return element;
   }
   return undefined;
@@ -183,9 +182,11 @@ function collectDropItemElements(): HTMLElement[] {
 
   for (const header of document.querySelectorAll('.accordion-header')) {
     const item = header.parentElement;
-    if (!item) continue;
-    if (item.querySelector(':scope > .accordion-header') !== header) continue;
-    if (!findDateElement(header)) continue;
+    if (
+      item?.querySelector(':scope > .accordion-header') !== header ||
+      !findDateElement(header)
+    )
+      continue;
     dropItemElements.push(item);
   }
 
@@ -197,16 +198,15 @@ function findCampaignHeadings(): CampaignHeadings | undefined {
   let closedHeading: HTMLElement | undefined;
 
   document.querySelectorAll('h4').forEach((h4) => {
-    const text = h4.textContent?.trim();
+    const text = h4.textContent.trim();
     if (text === 'Open Drop Campaigns') {
-      openHeading = h4 as HTMLElement;
+      openHeading = h4;
     } else if (text === 'Closed Drop Campaigns') {
-      closedHeading = h4 as HTMLElement;
+      closedHeading = h4;
     }
   });
 
-  if (!openHeading) return undefined;
-  return { openHeading, closedHeading };
+  return openHeading ? { openHeading, closedHeading } : undefined;
 }
 
 function isFollowing(reference: HTMLElement, item: HTMLElement): boolean {
@@ -229,12 +229,9 @@ function splitOpenAndClosedItems(
 
   for (const item of dropItemElements) {
     const isAfterOpen = isFollowing(openHeading, item);
-    const isBeforeClosed = closedHeading
-      ? isPreceding(closedHeading, item)
-      : true;
-    const isAfterClosed = closedHeading
-      ? isFollowing(closedHeading, item)
-      : false;
+    const isBeforeClosed = !closedHeading || isPreceding(closedHeading, item);
+    const isAfterClosed =
+      closedHeading !== undefined && isFollowing(closedHeading, item);
 
     if (isAfterOpen && isBeforeClosed) {
       openDropItems.push(item);
@@ -250,7 +247,7 @@ function buildSortedDropItems(openDropItems: HTMLElement[]): DropItem[] {
   const itemsWithDates: DropItem[] = openDropItems.map(
     (item, originalIndex) => {
       const dateElement = findDateElement(item);
-      const dateText = dateElement?.textContent?.trim() ?? '';
+      const dateText = dateElement?.textContent.trim() ?? '';
       const endDate = parseEndDate(dateText);
       const titleElement = item.querySelector(
         ':scope .accordion-header [class*="CoreText"]',
@@ -262,7 +259,7 @@ function buildSortedDropItems(openDropItems: HTMLElement[]): DropItem[] {
         endDate,
         timestamp: endDate ? endDate.getTime() : Number.POSITIVE_INFINITY,
         originalIndex,
-        title: titleElement?.textContent?.trim() ?? '',
+        title: titleElement?.textContent.trim() ?? '',
       };
     },
   );
@@ -310,11 +307,11 @@ function attachItemCheckbox(
   const button = item.element.querySelector(':scope .accordion-header button');
   if (!button) return;
 
-  const isChecked = savedState?.items?.[item.title] ?? true;
+  const isChecked = savedState?.items[item.title] ?? true;
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.className = 'drops-filter-checkbox';
-  checkbox.id = `drop-filter-${newIndex}`;
+  checkbox.id = `drop-filter-${String(newIndex)}`;
   checkbox.checked = isChecked;
 
   checkbox.addEventListener('change', (event) => {
@@ -342,13 +339,14 @@ function bindMasterFilterChange(
 ): void {
   masterCheckbox.addEventListener('change', () => {
     for (const [index, item] of itemsWithDates.entries()) {
-      const checkbox = document.querySelector(`#drop-filter-${index}`) as
-        HTMLInputElement | undefined;
+      const checkbox = document.querySelector(
+        `#drop-filter-${String(index)}`,
+      ) as HTMLInputElement | undefined;
 
       if (masterCheckbox.checked) {
         item.element.classList.toggle(
           'drops-hidden',
-          checkbox ? !checkbox.checked : false,
+          checkbox !== undefined && !checkbox.checked,
         );
       } else {
         item.element.classList.remove('drops-hidden');
@@ -420,8 +418,8 @@ function hasAccordionInMutation(mutation: MutationRecord): boolean {
     if (node.nodeType !== Node.ELEMENT_NODE) return false;
     const element = node as HTMLElement;
     return (
-      element.classList?.contains('accordion-header') ||
-      Boolean(element.querySelector?.(':scope .accordion-header'))
+      element.classList.contains('accordion-header') ||
+      Boolean(element.querySelector(':scope .accordion-header'))
     );
   });
 }
@@ -445,8 +443,8 @@ export function initializeCampaigns(): () => void {
 
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      if (mutation.addedNodes.length === 0) continue;
-      if (!hasAccordionInMutation(mutation)) continue;
+      if (mutation.addedNodes.length === 0 || !hasAccordionInMutation(mutation))
+        continue;
 
       mutationTimer = setTimeout(runProcess, MUTATION_PROCESS_DELAY_MS);
       break;

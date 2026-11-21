@@ -74,8 +74,9 @@ export function parseLastSize(sizeText: string): SizeInfo | undefined {
 
 export function parsePrice(priceText: string): number {
   const priceMatch = PRICE_PATTERN.exec(priceText);
-  if (!priceMatch?.[0]) return Number.NaN;
-  return Number(stripPriceFormatting(priceMatch[0]));
+  return priceMatch?.[0]
+    ? Number(stripPriceFormatting(priceMatch[0]))
+    : Number.NaN;
 }
 
 export function formatPricePerUnit(price: number, unit: string): string {

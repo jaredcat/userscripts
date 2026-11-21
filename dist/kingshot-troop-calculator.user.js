@@ -48,8 +48,7 @@
 	}
 	function findSectionRootByHeading(rx) {
 		const h = [...pageWindow.document.querySelectorAll("h2, h3")].find((element) => rx.test(element.textContent?.trim() ?? ""));
-		if (!h) return void 0;
-		return h.closest("[class*=\"rounded-lg\"], [class*=\"rounded\"], section, article") ?? h.parentElement;
+		return h ? h.closest("[class*=\"rounded-lg\"], [class*=\"rounded\"], section, article") ?? h.parentElement : void 0;
 	}
 	function getCalculatorFieldMap() {
 		const out = {};
@@ -98,8 +97,7 @@
 	function getCalculatorOrderedInputs() {
 		const m = getCalculatorFieldMap();
 		const resolved = FIELD_ORDER.map((k) => m[k]).filter(Boolean);
-		if (resolved.length === 11) return resolved;
-		return [...pageWindow.document.querySelectorAll("input")].filter((element) => isNumericLikeInput(element));
+		return resolved.length === 11 ? resolved : [...pageWindow.document.querySelectorAll("input")].filter((element) => isNumericLikeInput(element));
 	}
 	function setReactValue(pageElement, value) {
 		const key = Object.keys(pageElement).find((k) => k.startsWith("__reactProps"));
@@ -120,27 +118,24 @@
 	}
 	function isNumericLikeInput(element) {
 		const t = (element.type || "text").toLowerCase();
-		if ([
+		return !([
 			"checkbox",
 			"radio",
 			"file",
 			"button"
-		].includes(t)) return false;
-		if ([
+		].includes(t) || [
 			"hidden",
 			"submit",
 			"reset",
 			"image"
-		].includes(t)) return false;
-		return true;
+		].includes(t));
 	}
 	function load() {
 		try {
 			const raw = localStorage.getItem(STORAGE_KEY);
 			if (!raw) return [];
 			const parsed = JSON.parse(raw);
-			if (!Array.isArray(parsed)) return [];
-			return parsed.map(String);
+			return Array.isArray(parsed) ? parsed.map(String) : [];
 		} catch {
 			return [];
 		}
@@ -151,10 +146,9 @@
 		let hasAny = false;
 		for (const key of FIELD_ORDER) {
 			const element = m[key];
-			if (element) {
-				fields[key] = element.value;
-				hasAny = true;
-			}
+			if (!element) continue;
+			fields[key] = element.value;
+			hasAny = true;
 		}
 		if (hasAny) try {
 			localStorage.setItem(STORAGE_KEY_FIELDS, JSON.stringify({
@@ -218,8 +212,7 @@
 	}
 	function onPasteCapture(event) {
 		const target = event.target;
-		if (!target || !(target instanceof HTMLInputElement)) return;
-		if (!isNumericLikeInput(target)) return;
+		if (!target || !(target instanceof HTMLInputElement) || !isNumericLikeInput(target)) return;
 		const raw = event.clipboardData?.getData("text/plain");
 		if (raw === void 0 || raw === "") return;
 		const sanitized = sanitizePastedNumericField(raw);
@@ -250,8 +243,8 @@
     `;
 		document.head.append(style);
 	}
-	function parseCount(text) {
-		return Number((text ?? "").replaceAll(/\D/g, "")) || 0;
+	function parseCount(text = "") {
+		return Number(text.replaceAll(/\D/g, "")) || 0;
 	}
 	function fmt(n) {
 		return n.toLocaleString();
@@ -384,10 +377,7 @@
 	}
 	function infFloatForRemainder(rem, ti, tc) {
 		const denom = ti + tc;
-		if (denom <= 1e-12) {
-			if (ti <= 1e-12 && tc <= 1e-12) return 0;
-			return rem / 2;
-		}
+		if (denom <= 1e-12) return ti <= 1e-12 && tc <= 1e-12 ? 0 : rem / 2;
 		return rem * ti / denom;
 	}
 	function candidateInfValues(indexFloat, indexLow, indexHigh) {
@@ -413,8 +403,7 @@
 		const { index, rem, a, bounds, ratios } = input;
 		if (index < bounds.indexLow || index > bounds.indexHigh) return void 0;
 		const c = rem - index;
-		if (c < 0 || c > bounds.capC) return void 0;
-		return {
+		return c < 0 || c > bounds.capC ? void 0 : {
 			score: scoreComposition(index, c, a, ratios.T, ratios.ti, ratios.tc, ratios.ta),
 			chunk: {
 				inf: index,
@@ -499,17 +488,16 @@
 			marchTotal: 0
 		};
 		const march = bestCompositionForMarchTotal(T, capI, capC, capA, ti, tc, ta);
-		if (!march) return {
+		return march ? {
+			march,
+			marchTotal: T
+		} : {
 			march: {
 				inf: 0,
 				cav: 0,
 				arc: 0
 			},
 			marchTotal: 0
-		};
-		return {
-			march,
-			marchTotal: T
 		};
 	}
 	function roundTripletTo100(exacts, options) {
@@ -555,8 +543,7 @@
 	}
 	function troopTypeToIndex(t) {
 		if (t === "inf") return 0;
-		if (t === "cav") return 1;
-		return 2;
+		return t === "cav" ? 1 : 2;
 	}
 	function pickRemainderIndex(candidates, remainders, bias, preferIndex, direction) {
 		const sorted = [...candidates];
@@ -604,20 +591,14 @@
 			0,
 			0
 		];
-		if (preferred === "cav") return [
+		return preferred === "cav" ? [
 			0,
 			earlyBias,
 			0
-		];
-		if (preferred === "arc") return [
+		] : [
 			0,
 			0,
-			earlyBias
-		];
-		return [
-			0,
-			0,
-			0
+			preferred === "arc" ? earlyBias : 0
 		];
 	}
 	function getInputValues() {
@@ -625,8 +606,7 @@
 		const legacy = [...pageWindow.document.querySelectorAll("input")].filter((element) => isNumericLikeInput(element));
 		const pick = (k, legacyIndex) => {
 			const element = m[k];
-			if (element) return parseCount(element.value);
-			return parseCount(legacy[legacyIndex]?.value);
+			return parseCount(element ? element.value : legacy[legacyIndex]?.value);
 		};
 		return {
 			mySquad: pick("mySquad", IDX.mySquad),
@@ -644,10 +624,11 @@
 	}
 	function buildPctCell(display, actual, warnAgainst) {
 		const td = document.createElement("td");
-		const warns = [];
-		if (actual.inf < warnAgainst.inf) warns.push("⚠ Low infantry");
-		if (actual.cav < warnAgainst.cav) warns.push("⚠ Low cavalry");
-		if (actual.arc < warnAgainst.arc) warns.push("⚠ Low archers");
+		const warns = [
+			...actual.inf < warnAgainst.inf ? ["⚠ Low infantry"] : [],
+			...actual.cav < warnAgainst.cav ? ["⚠ Low cavalry"] : [],
+			...actual.arc < warnAgainst.arc ? ["⚠ Low archers"] : []
+		];
 		td.innerHTML = `
       <span class="ks-pct-badge ks-pct-inf">I: ${display.inf}%</span>
       <span class="ks-pct-badge ks-pct-cav">C: ${display.cav}%</span>
@@ -680,8 +661,7 @@
 	}
 	function ensureBearRallyColumn(table) {
 		const headerRow = table.querySelector("tr");
-		if (!headerRow || headerRow.cells.length < 3) return;
-		if (headerRow.cells[1]?.textContent?.trim() === "Rally") return;
+		if (!headerRow || headerRow.cells.length < 3 || headerRow.cells[1]?.textContent?.trim() === "Rally") return;
 		for (const row of table.querySelectorAll("tr")) {
 			if (row.classList.contains("ks-pct-row")) continue;
 			const cell = row.insertCell(1);
@@ -692,9 +672,9 @@
 	}
 	function fillTroopDataColumn(row, values) {
 		const last = row.cells.length - 1;
-		for (const [index, value] of values.entries()) {
+		for (const [index, value = 0] of values.entries()) {
 			const cell = row.cells[index + 1];
-			if (cell) cell.textContent = fmt(value ?? 0);
+			if (cell) cell.textContent = fmt(value);
 		}
 		const totalCell = row.cells[last];
 		if (totalCell) totalCell.textContent = fmt(values.reduce((a, b) => a + b, 0));

@@ -13,8 +13,7 @@ type DropsRoute = 'campaigns' | 'inventory' | undefined;
 function dropsRouteFromLocation(): DropsRoute {
   const { pathname } = location;
   if (pathname.includes('/drops/campaigns')) return 'campaigns';
-  if (pathname.includes('/drops/inventory')) return 'inventory';
-  return undefined;
+  return pathname.includes('/drops/inventory') ? 'inventory' : undefined;
 }
 
 function watchLocation(onChange: () => void): void {
@@ -33,7 +32,8 @@ function watchLocation(onChange: () => void): void {
     return;
   }
 
-  const { pushState, replaceState } = history;
+  const pushState = history.pushState.bind(history);
+  const replaceState = history.replaceState.bind(history);
   history.pushState = function (
     ...stateArguments: Parameters<History['pushState']>
   ) {

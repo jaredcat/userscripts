@@ -18,7 +18,7 @@ export class PetSmartPricePerUnit extends BaseSiteHandler {
   private getSizeText(container: Element): string {
     const keys = container.querySelectorAll('.variants-fieldset__legend-key');
     for (const key of keys) {
-      if (!key.textContent?.toLowerCase().includes('size')) {
+      if (!key.textContent.toLowerCase().includes('size')) {
         continue;
       }
 
@@ -27,7 +27,7 @@ export class PetSmartPricePerUnit extends BaseSiteHandler {
       );
       if (value?.textContent) return value.textContent.trim();
     }
-    return container.querySelector('h1')?.textContent?.trim() ?? '';
+    return container.querySelector('h1')?.textContent.trim() ?? '';
   }
 
   private async addPricePerUnit() {
@@ -43,9 +43,9 @@ export class PetSmartPricePerUnit extends BaseSiteHandler {
       productContainer.querySelector('.product-price-sparky');
     if (!priceContainer) return;
 
-    this.createObserver(productContainer, priceContainer, (element) =>
-      priceContainer.append(element),
-    );
+    this.createObserver(productContainer, priceContainer, (element) => {
+      priceContainer.append(element);
+    });
 
     const productInfo = this.extractProductInfo(productContainer);
     if (!productInfo?.pricePerUnit) return;
@@ -59,11 +59,10 @@ export class PetSmartPricePerUnit extends BaseSiteHandler {
   private addPpuToCard(card: Element) {
     if (card.querySelector('.price-per-unit')) return;
 
-    const title =
-      card
-        .querySelector('.sparky-c-product-card__title')
-        ?.textContent?.trim() ?? '';
-    const sizeInfo = parseLastSize(title);
+    const title = card
+      .querySelector('.sparky-c-product-card__title')
+      ?.textContent.trim();
+    const sizeInfo = parseLastSize(title ?? '');
     if (!sizeInfo) return;
 
     const priceGroup = card.querySelector(
@@ -71,7 +70,7 @@ export class PetSmartPricePerUnit extends BaseSiteHandler {
     );
     if (!priceGroup) return;
 
-    const priceText = priceGroup.textContent?.trim() ?? '';
+    const priceText = priceGroup.textContent.trim();
     if (priceText.includes('-')) return;
 
     const price = parsePrice(priceText);
@@ -133,8 +132,7 @@ export class PetSmartPricePerUnit extends BaseSiteHandler {
 
     const salePrice = priceElement.querySelector('.sparky-c-price--sale');
     const priceText =
-      (salePrice?.textContent || priceElement.textContent)?.trim() || '';
-
+      salePrice?.textContent.trim() ?? priceElement.textContent.trim();
     const price = parsePrice(priceText);
     if (!Number.isFinite(price)) return undefined;
 

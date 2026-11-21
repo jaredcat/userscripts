@@ -22,8 +22,7 @@ export abstract class BaseSiteHandler {
 
     const observer = new MutationObserver(() => {
       const productInfo = this.extractProductInfo(container);
-      if (!productInfo) return;
-      if (productInfo.pricePerUnit === undefined) return;
+      if (productInfo?.pricePerUnit === undefined) return;
 
       const newText = formatPricePerUnit(
         productInfo.pricePerUnit,

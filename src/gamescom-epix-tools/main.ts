@@ -72,7 +72,9 @@ class GamescomEpixTools implements EpixTools {
 
   public init(): void {
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => this.setup());
+      document.addEventListener('DOMContentLoaded', () => {
+        this.setup();
+      });
     } else {
       this.setup();
     }
@@ -97,17 +99,23 @@ class GamescomEpixTools implements EpixTools {
     const buttons = [
       {
         text: 'Quick Join Queue',
-        action: () => this.quickJoinQueue(),
+        action: () => {
+          this.quickJoinQueue();
+        },
         hotkey: 'J',
       },
       {
         text: 'Skip Current Video',
-        action: () => this.skipCurrentVideo(),
+        action: () => {
+          this.skipCurrentVideo();
+        },
         hotkey: 'S',
       },
       {
         text: 'Auto-Collect Rewards',
-        action: () => this.toggleAutoCollect(),
+        action: () => {
+          this.toggleAutoCollect();
+        },
         hotkey: 'R',
       },
     ];
@@ -125,7 +133,7 @@ class GamescomEpixTools implements EpixTools {
         cursor: pointer;
       `;
       button.addEventListener('click', action);
-      this.toolbar?.append(button);
+      this.toolbar.append(button);
     }
 
     document.body.append(this.toolbar);

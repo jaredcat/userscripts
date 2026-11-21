@@ -51,7 +51,9 @@
 			});
 		}
 		init() {
-			if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => this.setup());
+			if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => {
+				this.setup();
+			});
 			else this.setup();
 		}
 		addToolbar() {
@@ -72,17 +74,23 @@
 			const buttons = [
 				{
 					text: "Quick Join Queue",
-					action: () => this.quickJoinQueue(),
+					action: () => {
+						this.quickJoinQueue();
+					},
 					hotkey: "J"
 				},
 				{
 					text: "Skip Current Video",
-					action: () => this.skipCurrentVideo(),
+					action: () => {
+						this.skipCurrentVideo();
+					},
 					hotkey: "S"
 				},
 				{
 					text: "Auto-Collect Rewards",
-					action: () => this.toggleAutoCollect(),
+					action: () => {
+						this.toggleAutoCollect();
+					},
 					hotkey: "R"
 				}
 			];

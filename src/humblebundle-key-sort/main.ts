@@ -18,8 +18,8 @@ const waitForInit = setInterval(() => {
 
 function getKeyList(): Element | undefined {
   return (
-    document.querySelector('.content-choice-tiles') ||
-    document.querySelector('.key-list') ||
+    document.querySelector('.content-choice-tiles') ??
+    document.querySelector('.key-list') ??
     undefined
   );
 }
@@ -43,8 +43,8 @@ function main(keyList: Element): void {
     if (!isAClaimed && isBClaimed) return -1;
 
     // Both claimed or both unclaimed - sort alphabetically
-    const aText = a.textContent?.trim() ?? '';
-    const bText = b.textContent?.trim() ?? '';
+    const aText = a.textContent.trim();
+    const bText = b.textContent.trim();
     return aText.localeCompare(bText);
   });
 

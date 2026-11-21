@@ -49,21 +49,23 @@ const GROUP_ID_PATTERN = /-(\d+)$/;
 function isChewyPlpSearchResponse(
   value: unknown,
 ): value is ChewyPlpSearchResponse {
-  if (typeof value !== 'object' || !value) return false;
-  if (!('products' in value)) return true;
-  return Array.isArray((value as ChewyPlpSearchResponse).products);
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (!('products' in value) ||
+      Array.isArray((value as ChewyPlpSearchResponse).products))
+  );
 }
 
 function asOptionalString(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-  return undefined;
+  return typeof value === 'number' || typeof value === 'boolean'
+    ? String(value)
+    : undefined;
 }
 
-function asString(value: unknown, fallback = ''): string {
-  return asOptionalString(value) ?? fallback;
+function asString(value: unknown): string {
+  return asOptionalString(value) ?? '';
 }
 
 export class ChewyPricePerUnit extends BaseSiteHandler {
@@ -153,9 +155,9 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
       container.querySelector('.price');
     if (!priceContainer) return;
 
-    this.createObserver(container, priceContainer, (element) =>
-      priceContainer.append(element),
-    );
+    this.createObserver(container, priceContainer, (element) => {
+      priceContainer.append(element);
+    });
 
     const productInfo = this.extractProductInfo(container);
     if (!productInfo?.pricePerUnit) return;
@@ -168,8 +170,8 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
 
   private findDesktopSortContainer(): Element | undefined {
     const sortSelect = document.querySelector('[class*="Sort_sortSelect"]');
-    if (sortSelect?.parentElement) return sortSelect.parentElement;
     return (
+      sortSelect?.parentElement ??
       document.querySelector(ChewyPricePerUnit.DESKTOP_SORT_SELECTOR) ??
       undefined
     );
@@ -183,17 +185,17 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
     buttonAsc.type = 'button';
     buttonAsc.textContent = 'Unit price ↑';
     buttonAsc.style.cssText = 'margin-left:8px;cursor:pointer;padding:4px 8px;';
-    buttonAsc.addEventListener('click', () =>
-      this.sortListingByUnitPrice('asc'),
-    );
+    buttonAsc.addEventListener('click', () => {
+      void this.sortListingByUnitPrice('asc');
+    });
     const buttonDesc = document.createElement('button');
     buttonDesc.type = 'button';
     buttonDesc.textContent = 'Unit price ↓';
     buttonDesc.style.cssText =
       'margin-left:4px;cursor:pointer;padding:4px 8px;';
-    buttonDesc.addEventListener('click', () =>
-      this.sortListingByUnitPrice('desc'),
-    );
+    buttonDesc.addEventListener('click', () => {
+      void this.sortListingByUnitPrice('desc');
+    });
     wrap.append(buttonAsc, buttonDesc);
     return wrap;
   }
@@ -240,35 +242,31 @@ export class ChewyPricePerUnit extends BaseSiteHandler {
       mobileContainer.append(this.createSortButtonsFragment());
       LOG('addSortByUnitPrice: injected into mobile container');
     }
-    if (!desktopContainer && !mobileContainer) {
-      const grid = document.querySelector(
-        ChewyPricePerUnit.GRID_CONTAINER_SELECTOR,
+    if (desktopContainer || mobileContainer) return;
+
+    const grid = document.querySelector(
+      ChewyPricePerUnit.GRID_CONTAINER_SELECTOR,
+    );
+    if (grid) {
+      grid.insertAdjacentElement(
+        'beforebegin',
+        this.createSortButtonsFragment(),
       );
-      if (grid) {
-        grid.insertAdjacentElement(
-          'beforebegin',
-          this.createSortButtonsFragment(),
-        );
-      } else {
-        document.body.append(this.createSortButtonsFragment());
-      }
-      LOG('addSortByUnitPrice: fallback inject');
+    } else {
+      document.body.append(this.createSortButtonsFragment());
     }
+    LOG('addSortByUnitPrice: fallback inject');
   }
 
   private resolveFetchUrl(input: RequestInfo | URL): string {
     if (typeof input === 'string') return input;
-    if (input instanceof Request) return input.url;
-    return input.href;
+    return input instanceof Request ? input.url : input.href;
   }
 
   private productsFromPlpJson(json: unknown): ChewyPlpProduct[] | undefined {
-    if (!isChewyPlpSearchResponse(json) || !Array.isArray(json.products)) {
-      return undefined;
-    }
-    return json.products.map((product) =>
-      ChewyPricePerUnit.mapPlpProduct(product),
-    );
+    return isChewyPlpSearchResponse(json) && Array.isArray(json.products)
+      ? json.products.map((product) => ChewyPricePerUnit.mapPlpProduct(product))
+      : undefined;
   }
 
   private interceptPlpFetch() {
