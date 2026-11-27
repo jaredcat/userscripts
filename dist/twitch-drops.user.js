@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch Drops Page Tools
 // @namespace    https://github.com/jaredcat/userscripts
-// @version      1.1.4
+// @version      1.1.5
 // @author       jaredcat
 // @description  Sort Twitch drops by end date, auto-claim inventory, and hide ended in-progress campaigns
 // @license      AGPL-3.0-or-later
@@ -336,8 +336,10 @@
 	var LOAD_MORE_COOLDOWN_MS = 1e3;
 	var HIDDEN_CLASS = "drops-inventory-hidden";
 	var CLAIM_NOW_LABEL = "Claim Now";
+	var CONNECT_LABEL = "Connect";
 	var LOAD_MORE_LABEL = "Load More";
 	var NO_LONGER_AVAILABLE_TEXT = "This reward is no longer available";
+	var CAMPAIGN_CONNECT_SELECTOR = "[data-test-selector=\"DropsCampaignInProgressDescription-connect-button\"]";
 	var MONTH_INDEX = {
 		jan: 0,
 		feb: 1,
@@ -447,6 +449,7 @@
 		const currentMonth = new Date().getMonth();
 		const now = new Date();
 		let date = buildUtcDate(currentYear, parts, offsetHours);
+		if (date < now && parts.month < currentMonth) date = buildUtcDate(currentYear + 1, parts, offsetHours);
 		if (!shouldUsePreviousYear(date, now, currentMonth, parts.month)) return date;
 		const adjustedDate = buildUtcDate(currentYear - 1, parts, offsetHours);
 		const recentThresholdMs = RECENT_DAYS_THRESHOLD * MS_PER_DAY;
@@ -472,7 +475,23 @@
 			if (END_DATE_PATTERN.test(text)) return text;
 		}
 	}
+	function isLabeledControl(element, label) {
+		return element.textContent.trim() === label;
+	}
+	function hasDropLevelConnect(card) {
+		for (const element of card.querySelectorAll("a, button")) {
+			if (!isLabeledControl(element, CONNECT_LABEL)) continue;
+			if (element.matches(CAMPAIGN_CONNECT_SELECTOR)) continue;
+			return true;
+		}
+		return false;
+	}
+	function hasClaimNowInCard(card) {
+		for (const button of card.querySelectorAll("button")) if (isLabeledControl(button, CLAIM_NOW_LABEL)) return true;
+		return false;
+	}
 	function isEndedCampaign(card, info) {
+		if (hasDropLevelConnect(card) || hasClaimNowInCard(card)) return false;
 		if (card.textContent.includes(NO_LONGER_AVAILABLE_TEXT)) return true;
 		const dateText = findEndDateText(info);
 		return Boolean(dateText && isDateInPast(dateText));
@@ -483,8 +502,12 @@
 		const campaignInfos = document.querySelectorAll(".inventory-campaign-info");
 		for (const info of campaignInfos) {
 			const card = closestCardWithDropImage(info);
-			if (!card || !isEndedCampaign(card, info)) continue;
-			if (didHideElement(card)) hiddenCount++;
+			if (!card) continue;
+			if (isEndedCampaign(card, info)) {
+				if (didHideElement(card)) hiddenCount++;
+				continue;
+			}
+			card.classList.remove(HIDDEN_CLASS);
 		}
 		if (hiddenCount > 0) console.log(`[Twitch Drops] Hidden ${String(hiddenCount)} ended campaign(s)`);
 	}

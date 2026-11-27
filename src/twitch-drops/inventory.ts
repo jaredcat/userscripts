@@ -17,8 +17,11 @@ const MUTATION_DEBOUNCE_MS = 500;
 const LOAD_MORE_COOLDOWN_MS = 1000;
 const HIDDEN_CLASS = 'drops-inventory-hidden';
 const CLAIM_NOW_LABEL = 'Claim Now';
+const CONNECT_LABEL = 'Connect';
 const LOAD_MORE_LABEL = 'Load More';
 const NO_LONGER_AVAILABLE_TEXT = 'This reward is no longer available';
+const CAMPAIGN_CONNECT_SELECTOR =
+  '[data-test-selector="DropsCampaignInProgressDescription-connect-button"]';
 const MONTH_INDEX: Record<string, number> = {
   jan: 0,
   feb: 1,
@@ -195,6 +198,11 @@ function resolveYearAdjustedDate(
   const now = new Date();
   let date = buildUtcDate(currentYear, parts, offsetHours);
 
+  // Late in the year, early-month end dates belong to next year (e.g. Nov → Jan).
+  if (date < now && parts.month < currentMonth) {
+    date = buildUtcDate(currentYear + 1, parts, offsetHours);
+  }
+
   if (!shouldUsePreviousYear(date, now, currentMonth, parts.month)) {
     return date;
   }
@@ -233,7 +241,32 @@ function findEndDateText(root: Element): string | undefined {
   return undefined;
 }
 
+function isLabeledControl(element: Element, label: string): boolean {
+  return element.textContent.trim() === label;
+}
+
+function hasDropLevelConnect(card: HTMLElement): boolean {
+  // Ignore the campaign-header Connect; only drop-tile Connect means redeemable.
+  for (const element of card.querySelectorAll('a, button')) {
+    if (
+      !isLabeledControl(element, CONNECT_LABEL) ||
+      element.matches(CAMPAIGN_CONNECT_SELECTOR)
+    )
+      continue;
+    return true;
+  }
+  return false;
+}
+
+function hasClaimNowInCard(card: HTMLElement): boolean {
+  for (const button of card.querySelectorAll('button')) {
+    if (isLabeledControl(button, CLAIM_NOW_LABEL)) return true;
+  }
+  return false;
+}
+
 function isEndedCampaign(card: HTMLElement, info: Element): boolean {
+  if (hasDropLevelConnect(card) || hasClaimNowInCard(card)) return false;
   if (card.textContent.includes(NO_LONGER_AVAILABLE_TEXT)) return true;
   const dateText = findEndDateText(info);
   return Boolean(dateText && isDateInPast(dateText));
@@ -247,10 +280,16 @@ function hideEndedRewards(): void {
 
   for (const info of campaignInfos) {
     const card = closestCardWithDropImage(info);
-    if (!card || !isEndedCampaign(card, info)) continue;
-    if (didHideElement(card)) {
-      hiddenCount++;
+    if (!card) continue;
+
+    if (isEndedCampaign(card, info)) {
+      if (didHideElement(card)) {
+        hiddenCount++;
+      }
+      continue;
     }
+
+    card.classList.remove(HIDDEN_CLASS);
   }
 
   if (hiddenCount > 0) {
