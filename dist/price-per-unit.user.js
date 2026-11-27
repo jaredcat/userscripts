@@ -414,8 +414,7 @@
 			}
 			addPpuToCard(card) {
 				if (card.querySelector(".price-per-unit")) return;
-				const title = card.querySelector(".sparky-c-product-card__title")?.textContent.trim();
-				const sizeInfo = parseLastSize(title ?? "");
+				const sizeInfo = parseLastSize(card.querySelector(".sparky-c-product-card__title")?.textContent.trim() ?? "");
 				if (!sizeInfo) return;
 				const priceGroup = card.querySelector(".sparky-c-product-card__price-group");
 				if (!priceGroup) return;

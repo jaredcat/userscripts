@@ -1,6 +1,9 @@
 # Humble Bundle Key Sort
 
-Sort Humble Bundle purchases by claimed status on membership and downloads pages.
+Enhancements for Humble’s new library:
+
+- On content pages, the **Steam** button opens Steam’s redeem page with the revealed key already filled in
+- In **Sort & Filter**, a **Hide DRM-free** switch (on by default) hides DRM-free download rows
 
 ## Install
 

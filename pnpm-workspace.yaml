@@ -12,6 +12,11 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/visitor-keys@8.67.0'
   - typescript-eslint@8.67.0
   - globals@17.10.0 || 17.11.0
+  - '@eslint/config-array@0.23.7'
+  - eslint-config-narwhal@2.1.19
+  - eslint-config-prettier@10.1.9
+  - eslint@10.16.0
+  - postcss@8.5.34
 overrides:
   minimatch@>=7.0.0 <11.0.1: ^11.0.1
   seroval@<=1.6.7: ^1.6.8

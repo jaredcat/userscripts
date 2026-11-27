@@ -1,53 +1,434 @@
-const MAX_ATTEMPTS = 30; // 30 seconds max wait time
-const POLL_INTERVAL_MS = 1000;
-const state = { attempts: 0 };
+const STEAM_REGISTER_URL = 'https://store.steampowered.com/account/registerkey';
+const CONTENT_PATH_PREFIX = '/home/library/content/';
+const LIBRARY_PATH = '/home/library';
+const FILTER_USER_LIBRARY_ACTION = '6079bbb226aa7e8fee3b907cb491f8919534afb7d2';
+const PLATFORMS_WITHOUT_DOWNLOAD = [
+  'steam',
+  'gog',
+  'uplay',
+  'blizzard',
+] as const;
+const DRM_FREE_ARIA_LABEL = 'DRM-free download';
+const HIDE_DRM_FREE_STORAGE_KEY = 'hb-library-hide-drm-free';
+const HIDE_DRM_FREE_SWITCH_ID = 'library-hide-drm-free';
+const SHOW_REDEEMED_SWITCH_ID = 'library-show-redeemed';
+const STEAM_KEY_PATTERN = /^[A-Z0-9]{4,5}(?:-[A-Z0-9]{4,5}){2,5}$/i;
+const DOM_HIDE_ATTR = 'data-hb-hide-drm-free';
+const FILTER_BADGE_ATTR = 'data-hb-filter-badge';
+const OBSERVER_DEBOUNCE_MS = 150;
 
-const waitForInit = setInterval(() => {
-  state.attempts++;
-  const keyList = getKeyList();
-  if (keyList?.children.length) {
-    clearInterval(waitForInit);
-    main(keyList);
-  } else if (state.attempts >= MAX_ATTEMPTS) {
-    clearInterval(waitForInit);
-    console.warn(
-      'Humble Bundle Key Sort: Key list not found after maximum attempts',
-    );
+const state = {
+  shouldHideDrmFree: shouldHideDrmFreeFromStorage(),
+  observerTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+  isApplying: false,
+};
+
+init();
+
+function init(): void {
+  document.addEventListener('click', onDocumentClick, { capture: true });
+  patchLibraryFilterFetch();
+  observeLibraryDom();
+  runLibraryEnhancements();
+}
+
+function shouldHideDrmFreeFromStorage(): boolean {
+  try {
+    const stored = localStorage.getItem(HIDE_DRM_FREE_STORAGE_KEY);
+    return (stored ?? 'true') === 'true';
+  } catch {
+    return true;
   }
-}, POLL_INTERVAL_MS);
+}
 
-function getKeyList(): Element | undefined {
+function writeShouldHideDrmFree(shouldHide: boolean): void {
+  state.shouldHideDrmFree = shouldHide;
+  try {
+    localStorage.setItem(HIDE_DRM_FREE_STORAGE_KEY, String(shouldHide));
+  } catch {
+    // ignore quota / private mode failures
+  }
+}
+
+function isLibraryPath(): boolean {
   return (
-    document.querySelector('.content-choice-tiles') ??
-    document.querySelector('.key-list') ??
-    undefined
+    location.pathname === LIBRARY_PATH ||
+    location.pathname.startsWith(`${LIBRARY_PATH}/`)
   );
 }
 
-function isClaimed(element: Element): boolean {
-  return (
-    element.className.includes('claimed') ||
-    Boolean(element.querySelector('.redeemed'))
+function isContentPath(): boolean {
+  return location.pathname.startsWith(CONTENT_PATH_PREFIX);
+}
+
+function onDocumentClick(event: MouseEvent): void {
+  if (isContentPath()) {
+    handleSteamRedeemClick(event);
+  }
+}
+
+function handleSteamRedeemClick(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+
+  const button = target.closest('button');
+  if (!button) return;
+
+  const label = button.querySelector('span')?.textContent.trim();
+  if (label !== 'Steam') return;
+
+  const key = findSiblingSteamKey(button);
+  if (!key) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  open(
+    `${STEAM_REGISTER_URL}?key=${encodeURIComponent(key)}`,
+    '_blank',
+    'noopener,noreferrer',
   );
 }
 
-function main(keyList: Element): void {
-  const toSort = [...keyList.children];
+function findSiblingSteamKey(
+  steamButton: HTMLButtonElement,
+): string | undefined {
+  const group = steamButton.parentElement;
+  if (!group) return undefined;
 
-  toSort.sort((a, b) => {
-    const isAClaimed = isClaimed(a);
-    const isBClaimed = isClaimed(b);
+  for (const sibling of group.querySelectorAll('button')) {
+    if (sibling === steamButton) continue;
+    const text = sibling.querySelector('span')?.textContent.trim();
+    if (text && STEAM_KEY_PATTERN.test(text)) return text;
+  }
 
-    // Sort claimed items to the end
-    if (isAClaimed && !isBClaimed) return 1;
-    if (!isAClaimed && isBClaimed) return -1;
+  return undefined;
+}
 
-    // Both claimed or both unclaimed - sort alphabetically
-    const aText = a.textContent.trim();
-    const bText = b.textContent.trim();
-    return aText.localeCompare(bText);
+function patchLibraryFilterFetch(): void {
+  const originalFetch = fetch.bind(globalThis);
+
+  // Intentional monkey-patch so filterUserLibrary requests exclude DRM-free.
+  // eslint-disable-next-line unicorn/no-global-object-property-assignment -- fetch interception
+  globalThis.fetch = async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    if (state.shouldHideDrmFree && init?.body instanceof FormData) {
+      const action = getNextActionHeader(init.headers);
+      if (action === FILTER_USER_LIBRARY_ACTION) {
+        applyPlatformFilterToFormData(init.body);
+      }
+    }
+
+    return originalFetch(input, init);
+  };
+}
+
+function getNextActionHeader(
+  headers: HeadersInit | undefined,
+): string | undefined {
+  if (!headers) return undefined;
+  if (headers instanceof Headers) {
+    return headers.get('Next-Action') ?? undefined;
+  }
+  if (Array.isArray(headers)) {
+    const match = headers.find(([key]) => key.toLowerCase() === 'next-action');
+    return match?.[1];
+  }
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === 'next-action') return value;
+  }
+
+  return undefined;
+}
+
+function applyPlatformFilterToFormData(body: FormData): void {
+  const existing = body.getAll('platform[]').map(String);
+  body.delete('platform[]');
+
+  const base = existing.length > 0 ? existing : [...PLATFORMS_WITHOUT_DOWNLOAD];
+
+  for (const platform of base) {
+    if (platform !== 'download') {
+      body.append('platform[]', platform);
+    }
+  }
+}
+
+function observeLibraryDom(): void {
+  const observer = new MutationObserver((mutations) => {
+    if (
+      state.isApplying ||
+      mutations.every((mutation) => !isExternalMutation(mutation))
+    ) {
+      return;
+    }
+    scheduleLibraryEnhancements();
   });
 
-  // Use replaceChildren for better performance and safety
-  keyList.replaceChildren(...toSort);
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+}
+
+function isExternalMutation(mutation: MutationRecord): boolean {
+  const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
+  return nodes.length === 0 || nodes.some((node) => isExternalNode(node));
+}
+
+function isExternalNode(node: Node): boolean {
+  if (!(node instanceof Element)) return true;
+  if (
+    node.id === HIDE_DRM_FREE_SWITCH_ID ||
+    node.hasAttribute(FILTER_BADGE_ATTR) ||
+    node.querySelector(`#${CSS.escape(HIDE_DRM_FREE_SWITCH_ID)}`)
+  )
+    return false;
+  return !node.querySelector(`[${CSS.escape(FILTER_BADGE_ATTR)}]`);
+}
+
+function scheduleLibraryEnhancements(): void {
+  if (state.observerTimer) clearTimeout(state.observerTimer);
+  state.observerTimer = setTimeout(() => {
+    state.observerTimer = undefined;
+    runLibraryEnhancements();
+  }, OBSERVER_DEBOUNCE_MS);
+}
+
+function runLibraryEnhancements(): void {
+  if (state.isApplying) return;
+  state.isApplying = true;
+  try {
+    maybeInjectHideDrmFreeSwitch();
+    applyDrmFreeDomHide();
+    updateSortFilterBadge();
+  } finally {
+    state.isApplying = false;
+  }
+}
+
+function maybeInjectHideDrmFreeSwitch(): void {
+  if (
+    !isLibraryPath() ||
+    document.querySelector(`#${CSS.escape(HIDE_DRM_FREE_SWITCH_ID)}`)
+  ) {
+    return;
+  }
+
+  const showRedeemed = document.querySelector(
+    `#${CSS.escape(SHOW_REDEEMED_SWITCH_ID)}`,
+  );
+  if (!showRedeemed) return;
+
+  const row = showRedeemed.closest('.flex.items-center.justify-between');
+  if (!row?.parentElement) return;
+
+  row.after(buildHideDrmFreeRow(showRedeemed));
+}
+
+function buildHideDrmFreeRow(showRedeemedSwitch: Element): HTMLElement {
+  const templateRow = showRedeemedSwitch.closest(
+    '.flex.items-center.justify-between',
+  );
+  const row = (templateRow?.cloneNode(true) ??
+    document.createElement('div')) as HTMLElement;
+
+  if (!templateRow) {
+    row.className = 'flex items-center justify-between gap-3';
+  }
+
+  const label =
+    row.querySelector('label') ??
+    (() => {
+      const created = document.createElement('label');
+      row.prepend(created);
+      return created;
+    })();
+
+  label.setAttribute('for', HIDE_DRM_FREE_SWITCH_ID);
+  label.textContent = 'Hide DRM-free';
+
+  const switchElement =
+    row.querySelector<HTMLButtonElement>('[role="switch"]') ??
+    (() => {
+      const created = document.createElement('button');
+      created.type = 'button';
+      created.setAttribute('role', 'switch');
+      row.append(created);
+      return created;
+    })();
+
+  switchElement.id = HIDE_DRM_FREE_SWITCH_ID;
+  switchElement.type = 'button';
+  switchElement.setAttribute('role', 'switch');
+  syncHideDrmFreeSwitchUi(switchElement, state.shouldHideDrmFree);
+
+  switchElement.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const shouldHide = !state.shouldHideDrmFree;
+    writeShouldHideDrmFree(shouldHide);
+    syncHideDrmFreeSwitchUi(switchElement, shouldHide);
+    runLibraryEnhancements();
+  });
+
+  return row;
+}
+
+function syncHideDrmFreeSwitchUi(
+  switchElement: HTMLButtonElement,
+  isChecked: boolean,
+): void {
+  switchElement.setAttribute('aria-checked', String(isChecked));
+  switchElement.classList.toggle('bg-primary', isChecked);
+  switchElement.classList.toggle('bg-muted', !isChecked);
+
+  const thumb = switchElement.querySelector('span');
+  if (!thumb) return;
+
+  // Humble uses left-5 / left-0.5 (not translate-x-*).
+  thumb.classList.toggle('left-5', isChecked);
+  thumb.classList.toggle('left-0.5', !isChecked);
+  thumb.classList.remove('translate-x-5', 'translate-x-0');
+}
+
+function getSortFilterButton(): HTMLButtonElement | undefined {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      'button[aria-haspopup="dialog"]',
+    ),
+  ].find((button) => {
+    const label = button.querySelector(':scope > span');
+    return label?.textContent.trim() === 'Sort & Filter';
+  });
+}
+
+function isNativeFilterBadge(element: Element): boolean {
+  return (
+    element instanceof HTMLSpanElement &&
+    !element.hasAttribute(FILTER_BADGE_ATTR) &&
+    element.classList.contains('rounded-full') &&
+    element.classList.contains('bg-primary') &&
+    Boolean(element.querySelector(':scope > span[aria-hidden="true"]'))
+  );
+}
+
+function updateSortFilterBadge(): void {
+  if (!isLibraryPath()) return;
+
+  const button = getSortFilterButton();
+  if (!button) return;
+
+  const nativeBadge = [...button.querySelectorAll(':scope > span')].find(
+    (element) => isNativeFilterBadge(element),
+  );
+  const managedBadge = button.querySelector<HTMLSpanElement>(
+    `:scope > span[${CSS.escape(FILTER_BADGE_ATTR)}]`,
+  );
+
+  if (!state.shouldHideDrmFree) {
+    if (nativeBadge instanceof HTMLElement && nativeBadge.style.display) {
+      nativeBadge.style.display = '';
+    }
+    managedBadge?.remove();
+    return;
+  }
+
+  const nativeCount = readBadgeCount(nativeBadge);
+  const total = nativeCount + 1;
+
+  // Keep React's badge in the DOM (so we can keep reading its count) but hide it.
+  if (
+    nativeBadge instanceof HTMLElement &&
+    nativeBadge.style.display !== 'none'
+  ) {
+    nativeBadge.style.display = 'none';
+  }
+
+  if (managedBadge) {
+    setBadgeCount(managedBadge, total);
+    return;
+  }
+
+  const badge = createFilterBadge();
+  setBadgeCount(badge, total);
+  const icon = button.querySelector(':scope > svg');
+  if (icon) icon.before(badge);
+  else button.append(badge);
+}
+
+function readBadgeCount(badge: Element | undefined): number {
+  if (!badge) return 0;
+  const countElement = badge.querySelector(':scope > span[aria-hidden="true"]');
+  return countElement ? Number(countElement.textContent.trim()) || 0 : 0;
+}
+
+function createFilterBadge(): HTMLSpanElement {
+  const badge = document.createElement('span');
+  badge.setAttribute(FILTER_BADGE_ATTR, 'true');
+  badge.className =
+    'bg-primary text-primary-foreground flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-extrabold';
+
+  const visible = document.createElement('span');
+  visible.setAttribute('aria-hidden', 'true');
+
+  const srOnly = document.createElement('span');
+  srOnly.className = 'sr-only';
+
+  badge.append(visible, srOnly);
+  return badge;
+}
+
+function setBadgeCount(badge: Element, total: number): void {
+  const visible = badge.querySelector(':scope > span[aria-hidden="true"]');
+  const nextVisible = String(total);
+  if (visible && visible.textContent !== nextVisible) {
+    visible.textContent = nextVisible;
+  }
+
+  const srOnly = badge.querySelector(':scope > span.sr-only');
+  if (!srOnly) return;
+
+  const nextSr =
+    total === 1 ? `, ${String(total)} Filter` : `, ${String(total)} Filters`;
+  if (srOnly.textContent !== nextSr) {
+    srOnly.textContent = nextSr;
+  }
+}
+
+function applyDrmFreeDomHide(): void {
+  const links = document.querySelectorAll<HTMLElement>(
+    `a[href*="${CSS.escape(CONTENT_PATH_PREFIX)}"]`,
+  );
+
+  for (const link of links) {
+    const card = getLibraryCard(link);
+    if (!card) continue;
+
+    // Older builds hid the <a>; clear that so only the card is toggled.
+    if (link.style.display === 'none') link.style.display = '';
+    if (link.hasAttribute(DOM_HIDE_ATTR)) link.removeAttribute(DOM_HIDE_ATTR);
+
+    const isDrmFree = Boolean(
+      link.querySelector(`[aria-label="${CSS.escape(DRM_FREE_ARIA_LABEL)}"]`),
+    );
+    const isHidden = card.getAttribute(DOM_HIDE_ATTR) === 'true';
+
+    if (isDrmFree && state.shouldHideDrmFree) {
+      if (!isHidden) {
+        card.style.display = 'none';
+        card.setAttribute(DOM_HIDE_ATTR, 'true');
+      }
+    } else if (isHidden) {
+      card.style.display = '';
+      card.removeAttribute(DOM_HIDE_ATTR);
+    }
+  }
+}
+
+function getLibraryCard(link: HTMLElement): HTMLElement | undefined {
+  const card = link.closest<HTMLElement>('.bg-card');
+  return card ?? undefined;
 }
